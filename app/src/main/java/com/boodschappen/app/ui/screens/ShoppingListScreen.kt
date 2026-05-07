@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.ui.theme.*
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SyncMode
 import kotlinx.coroutines.launch
@@ -38,146 +40,101 @@ fun ShoppingListScreen(
     onEditItem: (Long) -> Unit,
     onScanBarcode: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val syncMode by viewModel.syncMode.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    val uiState       by viewModel.uiState.collectAsState()
+    val syncMode      by viewModel.syncMode.collectAsState()
+    val isDark        by viewModel.isDarkTheme.collectAsState()
+    val snackbar      = remember { SnackbarHostState() }
+    val scope         = rememberCoroutineScope()
+    val context       = LocalContext.current
+
+    var showDeleteDialog        by remember { mutableStateOf(false) }
     var showDeleteCheckedDialog by remember { mutableStateOf(false) }
-    var showShareSheet by remember { mutableStateOf(false) }
+    var showShareSheet          by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        viewModel.snackbarMessage.collect { msg ->
-            snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
-        }
+        viewModel.snackbarMessage.collect { snackbar.showSnackbar(it, duration = SnackbarDuration.Short) }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Boodschappen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        val unchecked = uiState.items.count { !it.isChecked }
-                        if (uiState.items.isNotEmpty()) {
-                            Text(
-                                "$unchecked te halen",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ),
-                actions = {
-                    // Live sync indicator
-                    if (syncMode is SyncMode.Shared) {
-                        LiveBadge(
-                            code = (syncMode as SyncMode.Shared).code,
-                            onClick = { showShareSheet = true }
-                        )
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    IconButton(onClick = { viewModel.toggleShowChecked() }) {
-                        Icon(
-                            if (uiState.showChecked) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = "Filter"
-                        )
-                    }
-                    IconButton(onClick = { showShareSheet = true }) {
-                        Icon(
-                            if (syncMode is SyncMode.Shared) Icons.Filled.PeopleAlt else Icons.Outlined.PeopleAlt,
-                            contentDescription = "Delen",
-                            tint = if (syncMode is SyncMode.Shared)
-                                MaterialTheme.colorScheme.primary
-                            else LocalContentColor.current
-                        )
-                    }
-                    IconButton(onClick = { viewModel.shareList(context) }) {
-                        Icon(Icons.Outlined.Share, contentDescription = "Export")
-                    }
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Afgestreept verwijderen") },
-                            leadingIcon = { Icon(Icons.Outlined.CheckCircle, null) },
-                            onClick = { menuExpanded = false; showDeleteCheckedDialog = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Alles verwijderen") },
-                            leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) },
-                            onClick = { menuExpanded = false; showDeleteDialog = true }
-                        )
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                SmallFloatingActionButton(
-                    onClick = onScanBarcode,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) { Icon(Icons.Outlined.QrCodeScanner, "Scannen") }
-                FloatingActionButton(
-                    onClick = onAddItem,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) { Icon(Icons.Default.Add, "Toevoegen") }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(brush = gradientBackground(isDark))
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                TopBar(
+                    isDark       = isDark,
+                    syncMode     = syncMode,
+                    itemCount    = uiState.items.count { !it.isChecked },
+                    showChecked  = uiState.showChecked,
+                    onToggleVisible  = { viewModel.toggleShowChecked() },
+                    onToggleTheme    = { viewModel.toggleTheme() },
+                    onShare          = { showShareSheet = true },
+                    onExport         = { viewModel.shareList(context) },
+                    onDeleteChecked  = { showDeleteCheckedDialog = true },
+                    onDeleteAll      = { showDeleteDialog = true }
+                )
+            },
+            floatingActionButton = {
+                GradientFabs(isDark = isDark, onAdd = onAddItem, onScan = onScanBarcode)
             }
-        }
-    ) { padding ->
+        ) { padding ->
 
-        if (uiState.items.isEmpty()) {
-            EmptyListPlaceholder(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                onAddItem = onAddItem,
-                onScanBarcode = onScanBarcode
-            )
-        } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                CategoryFilterRow(selectedCategory = uiState.filterCategory, onSelectCategory = viewModel::setFilterCategory)
+            if (uiState.items.isEmpty()) {
+                EmptyState(
+                    modifier    = Modifier.fillMaxSize().padding(padding),
+                    isDark      = isDark,
+                    onAdd       = onAddItem,
+                    onScan      = onScanBarcode
+                )
+            } else {
+                Column(Modifier.fillMaxSize().padding(padding)) {
 
-                val checkedCount = uiState.items.count { it.isChecked }
-                val totalCount = uiState.items.size
-                if (totalCount > 0) {
-                    LinearProgressIndicator(
-                        progress = { if (totalCount > 0) checkedCount.toFloat() / totalCount else 0f },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    // ── Category filter ───────────────────────────────────────
+                    CategoryChips(
+                        selected  = uiState.filterCategory,
+                        isDark    = isDark,
+                        onSelect  = viewModel::setFilterCategory
                     )
-                    Spacer(Modifier.height(8.dp))
-                }
 
-                val grouped = uiState.items.groupBy { it.category }
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp)
-                ) {
-                    grouped.forEach { (category, items) ->
-                        item { CategoryHeader(category = category, count = items.count { !it.isChecked }) }
-                        items(items, key = { it.id }) { item ->
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn() + slideInVertically(),
-                                exit = fadeOut() + slideOutVertically()
-                            ) {
-                                ShoppingItemRow(
-                                    item = item,
-                                    onChecked = { viewModel.toggleChecked(item) },
-                                    onEdit = { onEditItem(item.id) },
-                                    onDelete = { viewModel.deleteItem(item) }
-                                )
+                    // ── Progress ──────────────────────────────────────────────
+                    val checked = uiState.items.count { it.isChecked }
+                    val total   = uiState.items.size
+                    if (total > 0) {
+                        GradientProgress(checked = checked, total = total, isDark = isDark)
+                        Spacer(Modifier.height(4.dp))
+                    }
+
+                    // ── List ──────────────────────────────────────────────────
+                    val grouped = uiState.items.groupBy { it.category }
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp,
+                            top = 4.dp, bottom = 120.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        grouped.forEach { (category, items) ->
+                            item(key = "header_$category") {
+                                CategoryHeader(category = category, isDark = isDark,
+                                    count = items.count { !it.isChecked })
+                            }
+                            items(items, key = { it.id }) { item ->
+                                AnimatedVisibility(
+                                    visible = true,
+                                    enter   = fadeIn() + slideInVertically { it / 2 },
+                                    exit    = fadeOut() + slideOutHorizontally()
+                                ) {
+                                    GlassItemRow(
+                                        item    = item,
+                                        isDark  = isDark,
+                                        onCheck = { viewModel.toggleChecked(item) },
+                                        onEdit  = { onEditItem(item.id) },
+                                        onDelete = { viewModel.deleteItem(item) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -186,189 +143,400 @@ fun ShoppingListScreen(
         }
     }
 
-    // ── Share bottom sheet ─────────────────────────────────────────────────────
-    if (showShareSheet) {
-        ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
-    }
+    if (showShareSheet) ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
 
-    // ── Dialogs ────────────────────────────────────────────────────────────────
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Alles verwijderen?") },
-            text = { Text("Weet je zeker dat je de hele lijst wilt wissen?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch { viewModel.deleteCheckedItems() }
-                    showDeleteDialog = false
-                }) { Text("Verwijderen", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Annuleren") } }
+        GlassDialog(
+            title   = "Alles verwijderen?",
+            body    = "Weet je zeker dat je de hele lijst wilt wissen?",
+            isDark  = isDark,
+            onConfirm = { viewModel.deleteCheckedItems(); showDeleteDialog = false },
+            onDismiss = { showDeleteDialog = false }
         )
     }
     if (showDeleteCheckedDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteCheckedDialog = false },
-            title = { Text("Afgestreept verwijderen?") },
-            text = { Text("Alle afgestreepte items worden verwijderd.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteCheckedItems()
-                    showDeleteCheckedDialog = false
-                }) { Text("Verwijderen", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteCheckedDialog = false }) { Text("Annuleren") } }
+        GlassDialog(
+            title   = "Afgestreept verwijderen?",
+            body    = "Alle afgestreepte items worden verwijderd.",
+            isDark  = isDark,
+            onConfirm = { viewModel.deleteCheckedItems(); showDeleteCheckedDialog = false },
+            onDismiss = { showDeleteCheckedDialog = false }
         )
     }
 }
 
-// ── Live sync badge in toolbar ─────────────────────────────────────────────────
-
-@Composable
-fun LiveBadge(code: String, onClick: () -> Unit) {
-    val infiniteTransition = rememberInfiniteTransition(label = "live")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "dot"
-    )
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xFF4CAF50).copy(alpha = 0.15f)
-    ) {
-        Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier.size(7.dp).background(Color(0xFF4CAF50).copy(alpha = alpha), CircleShape)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                code,
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF2E7D32)
-            )
-        }
-    }
-}
-
-// ── Category header ────────────────────────────────────────────────────────────
-
-@Composable
-fun CategoryHeader(category: String, count: Int) {
-    val cat = Category.fromName(category)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(cat.emoji, fontSize = 18.sp)
-        Spacer(Modifier.width(8.dp))
-        Text(cat.displayName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.weight(1f))
-        if (count > 0) {
-            Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                Text("$count", color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-        }
-    }
-}
-
-// ── Item row met swipe-to-delete ───────────────────────────────────────────────
+// ── Top bar ───────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShoppingItemRow(
+private fun TopBar(
+    isDark: Boolean,
+    syncMode: SyncMode,
+    itemCount: Int,
+    showChecked: Boolean,
+    onToggleVisible: () -> Unit,
+    onToggleTheme: () -> Unit,
+    onShare: () -> Unit,
+    onExport: () -> Unit,
+    onDeleteChecked: () -> Unit,
+    onDeleteAll: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    TopAppBar(
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .glassCard(isDark, RoundedCornerShape(24.dp)),
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = if (isDark) Color(0x22FFFFFF) else Color(0x99FFFFFF)
+        ),
+        title = {
+            Column(modifier = Modifier.padding(start = 4.dp)) {
+                Text(
+                    "🛒 Boodschappen",
+                    style     = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color     = if (isDark) Color.White else Color(0xFF1A1040)
+                )
+                if (itemCount > 0) {
+                    Text(
+                        "$itemCount te halen",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        actions = {
+            if (syncMode is SyncMode.Shared) {
+                LiveBadge(code = (syncMode as SyncMode.Shared).code, isDark = isDark, onClick = onShare)
+                Spacer(Modifier.width(4.dp))
+            }
+            IconButton(onClick = onToggleTheme) {
+                Icon(
+                    if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                    "Thema",
+                    tint = if (isDark) Amber80 else Violet40
+                )
+            }
+            IconButton(onClick = onToggleVisible) {
+                Icon(
+                    if (showChecked) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    "Filter",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            IconButton(onClick = onShare) {
+                Icon(
+                    if (syncMode is SyncMode.Shared) Icons.Filled.PeopleAlt else Icons.Outlined.PeopleAlt,
+                    "Delen",
+                    tint = if (syncMode is SyncMode.Shared)
+                        if (isDark) Emerald80 else Emerald40
+                    else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Default.MoreVert, "Menu", tint = MaterialTheme.colorScheme.onSurface)
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Lijst exporteren") },
+                    leadingIcon = { Icon(Icons.Outlined.Share, null) },
+                    onClick = { menuExpanded = false; onExport() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Afgestreept verwijderen") },
+                    leadingIcon = { Icon(Icons.Outlined.CheckCircle, null) },
+                    onClick = { menuExpanded = false; onDeleteChecked() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Alles verwijderen", color = MaterialTheme.colorScheme.error) },
+                    leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null, tint = MaterialTheme.colorScheme.error) },
+                    onClick = { menuExpanded = false; onDeleteAll() }
+                )
+            }
+        }
+    )
+}
+
+// ── Live sync badge ───────────────────────────────────────────────────────────
+
+@Composable
+fun LiveBadge(code: String, isDark: Boolean, onClick: () -> Unit) {
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
+        label = "dot"
+    )
+    Surface(
+        onClick    = onClick,
+        shape      = RoundedCornerShape(20.dp),
+        color      = if (isDark) Emerald20.copy(alpha = 0.6f) else Emerald90,
+        modifier   = Modifier.padding(vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(7.dp).background(
+                if (isDark) Emerald80.copy(alpha = alpha) else Emerald40.copy(alpha = alpha),
+                CircleShape
+            ))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                code,
+                style      = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color      = if (isDark) Emerald80 else Emerald40
+            )
+        }
+    }
+}
+
+// ── Gradient progress ─────────────────────────────────────────────────────────
+
+@Composable
+private fun GradientProgress(checked: Int, total: Int, isDark: Boolean) {
+    val progress = if (total > 0) checked.toFloat() / total else 0f
+    val animProg by animateFloatAsState(
+        targetValue   = progress,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label         = "progress"
+    )
+
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "$checked / $total gedaan",
+                style  = MaterialTheme.typography.labelSmall,
+                color  = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "${(progress * 100).toInt()}%",
+                style  = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color  = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (isDark) Dark600 else Violet90)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animProg)
+                    .fillMaxHeight()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                if (isDark) Violet80 else Violet40,
+                                if (isDark) Emerald80 else Emerald40
+                            )
+                        )
+                    )
+            )
+        }
+    }
+}
+
+// ── Category header ───────────────────────────────────────────────────────────
+
+@Composable
+fun CategoryHeader(category: String, count: Int, isDark: Boolean) {
+    val cat   = Category.fromName(category)
+    val color = categoryColor(category, isDark)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = if (isDark) 0.2f else 0.15f)),
+            contentAlignment = Alignment.Center
+        ) { Text(cat.emoji, fontSize = 16.sp) }
+
+        Spacer(Modifier.width(10.dp))
+        Text(
+            cat.displayName,
+            style      = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color      = color
+        )
+        Spacer(Modifier.weight(1f))
+        if (count > 0) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(color.copy(alpha = if (isDark) 0.2f else 0.15f))
+                    .padding(horizontal = 10.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    "$count",
+                    style  = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color  = color
+                )
+            }
+        }
+    }
+}
+
+// ── Glass item row ────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlassItemRow(
     item: ShoppingItem,
-    onChecked: () -> Unit,
+    isDark: Boolean,
+    onCheck: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val catColor   = categoryColor(item.category, isDark)
     val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.EndToStart -> { onDelete(); true }
-                else -> false
-            }
+        confirmValueChange = { v ->
+            if (v == SwipeToDismissBoxValue.EndToStart) { onDelete(); true } else false
         }
     )
 
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
-            val color by animateColorAsState(
+            val bg by animateColorAsState(
                 if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart)
-                    MaterialTheme.colorScheme.errorContainer else Color.Transparent,
-                label = "swipe_bg"
+                    Rose20 else Color.Transparent,
+                label = "swipe"
             )
             Box(
-                Modifier.fillMaxSize().background(color).padding(end = 24.dp),
+                Modifier.fillMaxSize()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(bg)
+                    .padding(end = 24.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                    Icon(Icons.Default.Delete, "Verwijderen", tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Icon(Icons.Default.Delete, null, tint = Rose80)
                 }
             }
         },
         enableDismissFromStartToEnd = false
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clickable { onEdit() },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (item.isChecked) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                else MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (item.isChecked) 0.dp else 2.dp)
-        ) {
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = item.isChecked,
-                    onCheckedChange = { onChecked() },
-                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (item.isChecked) cardCheckedBackground(isDark)
+                    else cardBackground(isDark)
                 )
+                .glassCard(isDark, RoundedCornerShape(20.dp))
+                .clickable(onClick = onEdit)
+        ) {
+            // Colored left accent bar
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(4.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 2.dp, bottomEnd = 2.dp))
+                    .background(
+                        if (item.isChecked) catColor.copy(alpha = 0.3f) else catColor
+                    )
+            )
+
+            Row(
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked  = item.isChecked,
+                    onCheckedChange = { onCheck() },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor   = catColor,
+                        checkmarkColor = if (isDark) Dark900 else Color.White,
+                        uncheckedColor = catColor.copy(alpha = 0.5f)
+                    )
+                )
+
                 if (item.imageUrl != null) {
                     coil.compose.AsyncImage(
-                        model = item.imageUrl,
+                        model          = item.imageUrl,
                         contentDescription = item.name,
-                        modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        modifier       = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Dark700 else Violet90),
+                        contentScale   = androidx.compose.ui.layout.ContentScale.Crop
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(10.dp))
                 }
+
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (!item.isChecked) FontWeight.Medium else FontWeight.Normal,
+                        text           = item.name,
+                        style          = MaterialTheme.typography.bodyLarge,
+                        fontWeight     = if (!item.isChecked) FontWeight.SemiBold else FontWeight.Normal,
                         textDecoration = if (item.isChecked) TextDecoration.LineThrough else null,
-                        color = if (item.isChecked) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        color          = if (item.isChecked)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
                         else MaterialTheme.colorScheme.onSurface
                     )
                     if (item.brand != null || (item.quantity.isNotBlank() && item.quantity != "1")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (item.brand != null) {
-                                Text(item.brand, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (item.quantity.isNotBlank() && item.quantity != "1") Text(" • ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            item.brand?.let {
+                                Text(it, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (item.quantity.isNotBlank() && item.quantity != "1")
+                                    Text(" · ", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (item.quantity.isNotBlank() && item.quantity != "1") {
-                                Text("${item.quantity}${if (item.unit.isNotBlank()) " ${item.unit}" else ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "${item.quantity}${if (item.unit.isNotBlank()) " ${item.unit}" else ""}",
+                                    style  = MaterialTheme.typography.labelSmall,
+                                    color  = catColor,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
-                    if (item.note.isNotBlank()) Text(item.note, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    if (item.note.isNotBlank()) {
+                        Text(item.note, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
                 }
+
                 if (item.quantity.isNotBlank() && item.quantity != "1") {
-                    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(catColor.copy(alpha = if (isDark) 0.2f else 0.12f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
                             "${item.quantity}${if (item.unit.isNotBlank()) "\n${item.unit}" else ""}",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            style  = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color  = catColor,
                             textAlign = TextAlign.Center
                         )
                     }
@@ -378,58 +546,245 @@ fun ShoppingItemRow(
     }
 }
 
-// ── Category filter chips ──────────────────────────────────────────────────────
+// ── Category filter chips ─────────────────────────────────────────────────────
 
 @Composable
-fun CategoryFilterRow(selectedCategory: String?, onSelectCategory: (String?) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+fun CategoryChips(selected: String?, isDark: Boolean, onSelect: (String?) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         item {
-            FilterChip(
-                selected = selectedCategory == null,
-                onClick = { onSelectCategory(null) },
-                label = { Text("Alles") },
-                leadingIcon = if (selectedCategory == null) { { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) } } else null
+            ModernChip(
+                label    = "Alles",
+                selected = selected == null,
+                isDark   = isDark,
+                color    = if (isDark) Violet80 else Violet40,
+                onClick  = { onSelect(null) }
             )
         }
         items(Category.entries) { cat ->
-            FilterChip(
-                selected = selectedCategory == cat.displayName,
-                onClick = { onSelectCategory(if (selectedCategory == cat.displayName) null else cat.displayName) },
-                label = { Text("${cat.emoji} ${cat.displayName}") },
-                leadingIcon = if (selectedCategory == cat.displayName) { { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) } } else null
+            val color = categoryColor(cat.displayName, isDark)
+            ModernChip(
+                label    = "${cat.emoji} ${cat.displayName}",
+                selected = selected == cat.displayName,
+                isDark   = isDark,
+                color    = color,
+                onClick  = { onSelect(if (selected == cat.displayName) null else cat.displayName) }
             )
         }
     }
 }
 
-// ── Lege lijst placeholder ─────────────────────────────────────────────────────
+@Composable
+private fun ModernChip(
+    label: String,
+    selected: Boolean,
+    isDark: Boolean,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50.dp))
+            .background(
+                if (selected) color.copy(alpha = if (isDark) 0.30f else 0.20f)
+                else if (isDark) Dark700 else Color.White.copy(alpha = 0.7f)
+            )
+            .border(
+                1.dp,
+                if (selected) color.copy(alpha = 0.7f)
+                else if (isDark) Dark600 else Color(0xFFE0D9FF),
+                RoundedCornerShape(50.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selected) {
+                Icon(Icons.Default.Check, null,
+                    modifier = Modifier.size(14.dp),
+                    tint = color)
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                label,
+                style  = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color  = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+// ── FABs with gradient ────────────────────────────────────────────────────────
 
 @Composable
-fun EmptyListPlaceholder(modifier: Modifier = Modifier, onAddItem: () -> Unit, onScanBarcode: () -> Unit) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun GradientFabs(isDark: Boolean, onAdd: () -> Unit, onScan: () -> Unit) {
+    Column(horizontalAlignment = Alignment.End) {
+        // Small scanner FAB
         Box(
-            modifier = Modifier.size(120.dp).background(
-                brush = Brush.radialGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))),
-                shape = CircleShape
-            ),
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            if (isDark) Cyan80 else Cyan40,
+                            if (isDark) Emerald80 else Emerald40
+                        )
+                    )
+                )
+                .clickable(onClick = onScan),
             contentAlignment = Alignment.Center
-        ) { Text("🛒", fontSize = 52.sp) }
-        Spacer(Modifier.height(24.dp))
-        Text("Je lijst is leeg", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        ) {
+            Icon(Icons.Outlined.QrCodeScanner, "Scan",
+                tint = if (isDark) Dark900 else Color.White,
+                modifier = Modifier.size(22.dp))
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Main add FAB
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .shadow(12.dp, CircleShape)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            if (isDark) Violet80 else Violet40,
+                            if (isDark) Rose80.copy(alpha = 0.8f) else Rose40.copy(alpha = 0.8f)
+                        )
+                    )
+                )
+                .clickable(onClick = onAdd),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Add, "Toevoegen",
+                tint = Color.White,
+                modifier = Modifier.size(30.dp))
+        }
+    }
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+@Composable
+fun EmptyState(
+    modifier: Modifier = Modifier,
+    isDark: Boolean,
+    onAdd: () -> Unit,
+    onScan: () -> Unit
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            if (isDark) Violet30.copy(alpha = 0.6f) else Violet90,
+                            Color.Transparent
+                        )
+                    )
+                )
+                .glassCard(isDark, CircleShape),
+            contentAlignment = Alignment.Center
+        ) { Text("🛒", fontSize = 58.sp) }
+
+        Spacer(Modifier.height(28.dp))
+
+        Text(
+            "Je lijst is leeg",
+            style  = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color  = MaterialTheme.colorScheme.onBackground
+        )
         Spacer(Modifier.height(8.dp))
-        Text("Voeg items toe of scan een barcode\nom producten snel te herkennen", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(32.dp))
+        Text(
+            "Voeg items toe of scan een barcode\nom producten snel te herkennen",
+            style  = MaterialTheme.typography.bodyMedium,
+            color  = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(36.dp))
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onScanBarcode) {
-                Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp))
+            OutlinedButton(
+                onClick = onScan,
+                border  = BorderStroke(1.dp, if (isDark) Cyan80 else Cyan40),
+                shape   = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp),
+                    tint = if (isDark) Cyan80 else Cyan40)
                 Spacer(Modifier.width(8.dp))
-                Text("Scannen")
+                Text("Scannen", color = if (isDark) Cyan80 else Cyan40)
             }
-            Button(onClick = onAddItem) {
-                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Toevoegen")
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                if (isDark) Violet80 else Violet40,
+                                if (isDark) Rose80.copy(alpha = 0.7f) else Rose40.copy(alpha = 0.7f)
+                            )
+                        )
+                    )
+                    .clickable(onClick = onAdd)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Toevoegen", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
+}
+
+// ── Glass dialog ──────────────────────────────────────────────────────────────
+
+@Composable
+fun GlassDialog(
+    title: String,
+    body: String,
+    isDark: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor   = if (isDark) Dark700 else Color.White,
+        shape            = RoundedCornerShape(28.dp),
+        title = {
+            Text(title, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface)
+        },
+        text = {
+            Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        confirmButton = {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.linearGradient(listOf(Rose40, Rose20)))
+                    .clickable(onClick = onConfirm)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) { Text("Verwijderen", color = Color.White, fontWeight = FontWeight.SemiBold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuleren", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
 }

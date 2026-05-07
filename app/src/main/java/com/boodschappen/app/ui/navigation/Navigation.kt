@@ -1,7 +1,6 @@
 package com.boodschappen.app.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,9 +21,8 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun BoodschappenNavigation() {
+fun BoodschappenNavigation(viewModel: ShoppingViewModel) {
     val navController = rememberNavController()
-    val viewModel: ShoppingViewModel = viewModel()
 
     NavHost(
         navController = navController,
@@ -38,7 +36,6 @@ fun BoodschappenNavigation() {
                 onScanBarcode = { navController.navigate(Screen.Scanner.route) }
             )
         }
-
         composable(Screen.AddItem.route) {
             AddEditItemScreen(
                 viewModel = viewModel,
@@ -46,19 +43,16 @@ fun BoodschappenNavigation() {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-
         composable(
             route = Screen.EditItem.route,
             arguments = listOf(navArgument("itemId") { type = NavType.LongType })
         ) { backStackEntry ->
-            val itemId = backStackEntry.arguments?.getLong("itemId")
             AddEditItemScreen(
                 viewModel = viewModel,
-                itemId = itemId,
+                itemId = backStackEntry.arguments?.getLong("itemId"),
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-
         composable(Screen.Scanner.route) {
             ScannerScreen(
                 viewModel = viewModel,

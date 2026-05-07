@@ -64,6 +64,16 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val localRepo: ShoppingRepository
     private val firestoreRepo = FirestoreRepository()
 
+    // ── Theme ─────────────────────────────────────────────────────────────────
+    private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("dark_theme", true))
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    fun toggleTheme() {
+        val new = !_isDarkTheme.value
+        _isDarkTheme.value = new
+        prefs.edit().putBoolean("dark_theme", new).apply()
+    }
+
     // Items kept in memory while in shared mode
     private val _sharedItems = MutableStateFlow<List<ShoppingItem>>(emptyList())
 
