@@ -12,15 +12,19 @@ const APK_NAME       = process.env.APK_NAME;
 const REPO           = process.env.GITHUB_REPOSITORY;  // sabair24/BoodschappenApp
 const SA_JSON        = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-if (!VERSION_NAME || !APK_NAME || !REPO || !SA_JSON) {
+const VERSION_CODE_RAW = process.env.VERSION_CODE;
+
+if (!VERSION_NAME || !APK_NAME || !REPO || !SA_JSON || !VERSION_CODE_RAW) {
   console.error("❌ Ontbrekende environment variables");
   process.exit(1);
 }
 
-// Versienummer omzetten naar versionCode (bijv. "1.5" → 6, "1.4" → 5)
-// Formule: major * 100 + minor  (1.5 → 105, 1.4 → 104, enz.)
-const [major, minor] = VERSION_NAME.split(".").map(Number);
-const versionCode = major * 100 + minor;
+// versionCode komt direct uit build.gradle.kts via de workflow
+const versionCode = parseInt(process.env.VERSION_CODE, 10);
+if (!versionCode || isNaN(versionCode)) {
+  console.error("❌ Ontbrekende of ongeldige VERSION_CODE environment variable");
+  process.exit(1);
+}
 
 const downloadUrl = `https://github.com/${REPO}/releases/download/v${VERSION_NAME}/${APK_NAME}`;
 

@@ -24,10 +24,13 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── 3. Versie uit tag halen (v1.5 → 1.5) ─────────────────────────────────
+      # ── 3. Versie uit tag + build.gradle.kts halen ───────────────────────────
       - name: Extract version
         id: version
-        run: echo "name=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          echo "name=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          CODE=$(grep 'versionCode' app/build.gradle.kts | grep -o '[0-9]\+' | head -1)
+          echo "code=$CODE" >> $GITHUB_OUTPUT
 
       # ── 4. APK bouwen ─────────────────────────────────────────────────────────
       - name: Build release APK
@@ -69,5 +72,6 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
           APK_NAME: ${{ steps.apk.outputs.name }}
           GITHUB_REPOSITORY: ${{ github.repository }}
