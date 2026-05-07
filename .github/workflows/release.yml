@@ -1,0 +1,71 @@
+name: 🚀 Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # triggert bij: git tag v1.5 && git push --tags
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Code ophalen ───────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. JDK 17 instellen ───────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # ── 3. Versie uit tag halen (v1.5 → 1.5) ─────────────────────────────────
+      - name: Extract version
+        id: version
+        run: echo "name=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # ── 4. APK bouwen ─────────────────────────────────────────────────────────
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+
+      # ── 5. APK pad opslaan ────────────────────────────────────────────────────
+      - name: Find APK
+        id: apk
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "name=$(basename $APK)" >> $GITHUB_OUTPUT
+
+      # ── 6. GitHub Release aanmaken + APK uploaden ─────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.version.outputs.name }}"
+          body: |
+            ## 📦 Boodschappenlijst App v${{ steps.version.outputs.name }}
+
+            Download de APK hieronder en installeer hem op je Android telefoon.
+            De app meldt zelf ook als er een update beschikbaar is.
+          files: ${{ steps.apk.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 7. Firestore bijwerken ────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install firebase-admin
+        run: npm install firebase-admin
+
+      - name: Update Firestore version info
+        run: node scripts/update_firestore_ci.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
