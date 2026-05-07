@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingDatabase
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.data.remote.AppVersion
 import com.boodschappen.app.data.remote.FirestoreRepository
+import com.boodschappen.app.data.remote.UpdateRepository
 import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
 import com.boodschappen.app.data.repository.ShoppingRepository
@@ -46,6 +48,16 @@ data class UiState(
     val showChecked: Boolean = true
 )
 
+// ── Update state ──────────────────────────────────────────────────────────────
+
+sealed class UpdateState {
+    object Idle : UpdateState()
+    data class Available(val version: AppVersion) : UpdateState()
+    data class Downloading(val progress: Int) : UpdateState()
+    object ReadyToInstall : UpdateState()
+    data class Error(val message: String) : UpdateState()
+}
+
 sealed class ScanState {
     object Idle : ScanState()
     object Scanning : ScanState()
@@ -62,7 +74,38 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         application.getSharedPreferences("boodschappen_prefs", Context.MODE_PRIVATE)
 
     private val localRepo: ShoppingRepository
-    private val firestoreRepo = FirestoreRepository()
+    private val firestoreRepo  = FirestoreRepository()
+    private val updateRepo     = UpdateRepository(application)
+
+    // ── Update ────────────────────────────────────────────────────────────────
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    fun checkForUpdate(currentVersionCode: Int) {
+        viewModelScope.launch {
+            val latest = updateRepo.fetchLatestVersion() ?: return@launch
+            if (latest.versionCode > currentVersionCode) {
+                _updateState.value = UpdateState.Available(latest)
+            }
+        }
+    }
+
+    fun downloadAndInstall(url: String) {
+        _updateState.value = UpdateState.Downloading(0)
+        viewModelScope.launch {
+            val file = updateRepo.downloadApk(url) { progress ->
+                _updateState.value = UpdateState.Downloading(progress)
+            }
+            if (file != null) {
+                _updateState.value = UpdateState.ReadyToInstall
+                updateRepo.installApk(file)
+            } else {
+                _updateState.value = UpdateState.Error("Download mislukt, probeer opnieuw")
+            }
+        }
+    }
+
+    fun dismissUpdate() { _updateState.value = UpdateState.Idle }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
     private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("dark_theme", true))
