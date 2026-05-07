@@ -1,0 +1,5 @@
+-keep class com.boodschappen.app.data.remote.** { *; }
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+-keep class org.eclipse.paho.** { *; }
+-dontwarn org.eclipse.paho.**
