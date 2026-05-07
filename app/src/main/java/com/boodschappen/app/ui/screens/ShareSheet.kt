@@ -185,14 +185,12 @@ fun ShareSheet(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
-                                if (state.message.contains("mislukt") || state.message.contains("aanmaken")) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "Controleer je internetverbinding en probeer opnieuw.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                                    )
-                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Controleer je internetverbinding en probeer opnieuw.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                )
                             }
                         }
                     }

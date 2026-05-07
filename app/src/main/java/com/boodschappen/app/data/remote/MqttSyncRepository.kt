@@ -48,7 +48,7 @@ class MqttSyncRepository {
     private var mqttClient: MqttClient? = null
 
     companion object {
-        private const val BROKER_URI = "tcp://broker.hivemq.com:1883"
+        private const val BROKER_URI = "ssl://broker.hivemq.com:8883"
         private const val TOPIC_PREFIX = "boodschappen/v1/"
 
         fun generateCode(): String {
