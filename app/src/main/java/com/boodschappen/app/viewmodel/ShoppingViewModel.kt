@@ -9,7 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingDatabase
 import com.boodschappen.app.data.local.ShoppingItem
-import com.boodschappen.app.data.remote.MqttSyncRepository
+import com.boodschappen.app.data.remote.FirestoreRepository
 import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
 import com.boodschappen.app.data.repository.ShoppingRepository
@@ -62,7 +62,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         application.getSharedPreferences("boodschappen_prefs", Context.MODE_PRIVATE)
 
     private val localRepo: ShoppingRepository
-    private val mqttRepo = MqttSyncRepository()
+    private val firestoreRepo = FirestoreRepository()
 
     // Items kept in memory while in shared mode
     private val _sharedItems = MutableStateFlow<List<ShoppingItem>>(emptyList())
@@ -134,7 +134,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun startMqttSync(code: String) {
         mqttSyncJob?.cancel()
         mqttSyncJob = viewModelScope.launch {
-            mqttRepo.getItemsFlow(code).catch { /* stay on last state */ }.collect { items ->
+            firestoreRepo.getItemsFlow(code).catch { /* stay on last state */ }.collect { items ->
                 _sharedItems.value = items
                 updateDisplayedItems(items)
             }
@@ -157,10 +157,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         _shareUiState.value = ShareUiState.Loading
         viewModelScope.launch {
             try {
-                val code = MqttSyncRepository.generateCode()
+                val code = FirestoreRepository.generateCode()
                 val currentItems = _uiState.value.items
                 _sharedItems.value = currentItems
-                mqttRepo.publishList(code, currentItems)
+                firestoreRepo.createList(code, currentItems)
                 prefs.edit().putString("list_code", code).apply()
                 _syncMode.value = SyncMode.Shared(code)
                 _shareUiState.value = ShareUiState.Active(code)
@@ -180,7 +180,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         _shareUiState.value = ShareUiState.Loading
         viewModelScope.launch {
             try {
-                if (!mqttRepo.listExists(trimmed)) {
+                if (!firestoreRepo.listExists(trimmed)) {
                     _shareUiState.value = ShareUiState.Error("Lijst \"$trimmed\" niet gevonden")
                     return@launch
                 }
@@ -196,7 +196,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun stopSharing() {
         mqttSyncJob?.cancel(); mqttSyncJob = null
-        mqttRepo.disconnect()
         prefs.edit().remove("list_code").apply()
         _sharedItems.value = emptyList()
         _syncMode.value = SyncMode.Local
@@ -217,12 +216,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     _snackbarMessage.emit("${item.name} toegevoegd")
                 }
                 is SyncMode.Shared -> {
-                    val newItem = item.copy(id = MqttSyncRepository.newItemId())
+                    val newItem = item.copy(id = FirestoreRepository.newItemId())
                     val updated = _sharedItems.value + newItem
                     _sharedItems.value = updated
                     updateDisplayedItems(updated)
                     try {
-                        mqttRepo.publishList(mode.code, updated)
+                        firestoreRepo.publishList(mode.code, updated)
                         _snackbarMessage.emit("${item.name} toegevoegd")
                     } catch (e: Exception) {
                         _snackbarMessage.emit("Fout: ${e.message}")
@@ -240,7 +239,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     val updated = _sharedItems.value.map { if (it.id == item.id) item else it }
                     _sharedItems.value = updated
                     updateDisplayedItems(updated)
-                    runCatching { mqttRepo.publishList(mode.code, updated) }
+                    runCatching { firestoreRepo.publishList(mode.code, updated) }
                 }
             }
         }
@@ -258,7 +257,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     _sharedItems.value = updated
                     updateDisplayedItems(updated)
                     try {
-                        mqttRepo.publishList(mode.code, updated)
+                        firestoreRepo.publishList(mode.code, updated)
                         _snackbarMessage.emit("${item.name} verwijderd")
                     } catch (e: Exception) {
                         _snackbarMessage.emit("Fout: ${e.message}")
@@ -283,7 +282,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     _sharedItems.value = updated
                     updateDisplayedItems(updated)
                     try {
-                        mqttRepo.publishList(mode.code, updated)
+                        firestoreRepo.publishList(mode.code, updated)
                         _snackbarMessage.emit("$removed items verwijderd")
                     } catch (e: Exception) {
                         _snackbarMessage.emit("Fout: ${e.message}")

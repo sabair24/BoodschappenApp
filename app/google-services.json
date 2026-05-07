@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "775098056780",
+    "project_id": "boodschappenlijst-app-claude",
+    "storage_bucket": "boodschappenlijst-app-claude.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:775098056780:android:8dc1b60af2b6bc496434e9",
+        "android_client_info": {
+          "package_name": "com.boodschappen.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpA73G3J0u4qWVKGOHsENYnXBzLGpuof4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
