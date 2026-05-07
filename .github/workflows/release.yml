@@ -8,6 +8,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # vereist voor aanmaken van GitHub Releases
 
     steps:
       # ── 1. Code ophalen ───────────────────────────────────────────────────────
