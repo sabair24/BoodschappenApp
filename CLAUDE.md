@@ -19,3 +19,9 @@ Lokale `git push` geeft HTTP 403. Gebruik altijd `mcp__github__create_or_update_
 - Bouwtijd ~10 minuten
 - Na de build wordt Firestore bijgewerkt via `scripts/update_firestore_ci.js`
 - Gebruiker opent app opnieuw → update-popup verschijnt
+
+## Communicatie
+**Altijd een korte samenvatting geven als een taak klaar is:**
+- Wat er gedaan is
+- Welke versie gebouwd wordt
+- Of de gebruiker moet wachten op de build
