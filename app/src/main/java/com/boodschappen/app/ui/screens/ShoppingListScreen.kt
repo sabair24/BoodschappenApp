@@ -116,7 +116,7 @@ fun ShoppingListScreen(
             }
         ) { padding ->
 
-            if (uiState.items.isEmpty() && uiState.searchQuery.isBlank()) {
+            if (uiState.items.isEmpty() && uiState.searchQuery.isBlank() && uiState.filterCategory == null) {
                 EmptyState(
                     modifier    = Modifier.fillMaxSize().padding(padding),
                     isDark      = isDark,
@@ -153,6 +153,26 @@ fun ShoppingListScreen(
                     if (total > 0) {
                         GradientProgress(checked = checked, total = total, isDark = isDark)
                         Spacer(Modifier.height(4.dp))
+                    }
+
+                    // ── Empty filter result ───────────────────────────────────
+                    if (uiState.items.isEmpty() && uiState.filterCategory != null) {
+                        val cat = Category.fromName(uiState.filterCategory!!)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(cat.emoji, fontSize = 40.sp)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Geen items in ${cat.displayName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     // ── Empty search result ───────────────────────────────────
