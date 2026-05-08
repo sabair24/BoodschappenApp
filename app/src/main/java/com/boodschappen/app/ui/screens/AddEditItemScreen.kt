@@ -59,6 +59,7 @@ fun AddEditItemScreen(
     var imageUrl     by remember { mutableStateOf<String?>(null) }
     var brand        by remember { mutableStateOf<String?>(null) }
     var barcode      by remember { mutableStateOf<String?>(null) }
+    var userChangedCategory by remember { mutableStateOf(false) }
 
     val scanState       by viewModel.scanState.collectAsState()
     val nameSearchState by viewModel.nameSearchState.collectAsState()
@@ -69,8 +70,11 @@ fun AddEditItemScreen(
         if (itemId != null) {
             viewModel.getItemById(itemId)?.let {
                 existingItem = it; name = it.name; quantity = it.quantity
-                unit = it.unit; selectedCat = Category.fromName(it.category)
-                note = it.note; imageUrl = it.imageUrl; brand = it.brand; barcode = it.barcode
+                unit = it.unit; note = it.note; imageUrl = it.imageUrl; brand = it.brand; barcode = it.barcode
+                val storedCat = Category.fromName(it.category)
+                selectedCat = if (storedCat == Category.OVERIG)
+                    guessCategoryFromName(it.name) ?: storedCat
+                else storedCat
             }
         }
     }
@@ -89,10 +93,10 @@ fun AddEditItemScreen(
 
     LaunchedEffect(nameSearchState) {
         val s = nameSearchState
-        if (s is NameSearchState.Found && imageUrl == null) {
-            imageUrl    = s.product.getBestImage()
+        if (s is NameSearchState.Found) {
+            if (imageUrl == null) imageUrl = s.product.getBestImage()
             if (brand == null) brand = s.product.brands?.split(",")?.firstOrNull()?.trim()
-            selectedCat = autoCategory(s.product.categories_tags, selectedCat)
+            if (!userChangedCategory) selectedCat = autoCategory(s.product.categories_tags, selectedCat)
         }
     }
 
@@ -158,7 +162,7 @@ fun AddEditItemScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
 
-                // ── Productafbeelding ──────────────────────────────────────────
+                // ── Productafbeelding ──────────────────────────────────────────────
                 AnimatedVisibility(
                     visible = imageUrl != null,
                     enter   = expandVertically() + fadeIn(),
@@ -198,12 +202,14 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Naam + zoek-indicator ──────────────────────────────────────
+                // ── Naam + zoek-indicator ──────────────────────────────────
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     GlassTextField(
                         value           = name,
                         onValueChange   = { v ->
                             name = v
+                            if (!userChangedCategory && v.isNotBlank())
+                                guessCategoryFromName(v)?.let { selectedCat = it }
                             if (!isEditing) viewModel.searchProductByName(v)
                         },
                         label           = "Productnaam *",
@@ -278,7 +284,7 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Aantal + Eenheid ───────────────────────────────────────────
+                // ── Aantal + Eenheid ─────────────────────────────────────────────────────
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     GlassTextField(
                         value           = quantity,
@@ -315,7 +321,7 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Categorie ──────────────────────────────────────────────────
+                // ── Categorie ──────────────────────────────────────────────────────────────────
                 ExposedDropdownMenuBox(
                     expanded         = showCatPicker,
                     onExpandedChange = { showCatPicker = it }
@@ -350,7 +356,7 @@ fun AddEditItemScreen(
                                             color = if (selectedCat == cat) cc else MaterialTheme.colorScheme.onSurface)
                                     }
                                 },
-                                onClick     = { selectedCat = cat; showCatPicker = false },
+                                onClick     = { selectedCat = cat; showCatPicker = false; userChangedCategory = true },
                                 leadingIcon = if (selectedCat == cat) {
                                     { Icon(Icons.Default.Check, null, tint = cc) }
                                 } else null
@@ -359,7 +365,7 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Notitie ────────────────────────────────────────────────────
+                // ── Notitie ────────────────────────────────────────────────────────────────────────────
                 GlassTextField(
                     value         = note,
                     onValueChange = { note = it },
@@ -373,7 +379,7 @@ fun AddEditItemScreen(
                     }
                 )
 
-                // ── Barcode badge ──────────────────────────────────────────────
+                // ── Barcode badge ──────────────────────────────────────────────────────────────────
                 if (barcode != null) {
                     Row(
                         modifier = Modifier
@@ -398,7 +404,7 @@ fun AddEditItemScreen(
 
                 Spacer(Modifier.height(4.dp))
 
-                // ── Opslaan-knop met spring-animatie ───────────────────────────
+                // ── Opslaan-knop met spring-animatie ───────────────────────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -458,7 +464,7 @@ fun AddEditItemScreen(
     }
 }
 
-// ── Suggestiechips ────────────────────────────────────────────────────────────
+// ── Suggestiechips ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun SuggestionRow(
@@ -488,23 +494,82 @@ private fun SuggestionRow(
     }
 }
 
-// ── Automatische categorie o.b.v. Open Food Facts tags ───────────────────────
+// ── Lokale categorieherkenning op naam (offline, instant) ─────────────────────────
+
+private fun guessCategoryFromName(name: String): Category? {
+    val n = name.lowercase()
+    return when {
+        n.hasAny("banaan", "appel", "peer", "druif", "aardbei", "framboos", "bosbes",
+            "braam", "sinaasappel", "mandarijn", "citroen", "limoen", "mango", "ananas",
+            "kiwi", "perzik", "pruim", "kers", "meloen", "watermeloen", "vijg", "dadel",
+            "papaja", "lychee", "passievrucht", "tomaat", "komkommer", "paprika", "sla",
+            "spinazie", "wortel", "broccoli", "bloemkool", "spruitjes", "ui", "knoflook",
+            "aardappel", "zoete aardappel", "courgette", "aubergine", "prei", "champignon",
+            "paddenstoel", "avocado", "gember", "selderij", "paksoi", "andijvie", "witlof",
+            "radijs", "biet", "mais", "erwtjes", "doperwten", "tuinbonen", "asperge",
+            "artisjok", "venkel", "rucola", "postelein") -> Category.GROENTE_FRUIT
+
+        n.hasAny("melk", "kaas", "boter", "yoghurt", "kwark", "room", "vla", "slagroom",
+            "mozzarella", "cheddar", "gouda", "brie", "camembert", "ricotta", "feta",
+            "parmezan", "halvarine", "margarine", "creme fraiche", "crème fraîche",
+            "eieren", "ei ") -> Category.ZUIVEL
+
+        n.hasAny("kip", "gehakt", "biefstuk", "tartaar", "schnitzel", "kalkoen", "eend",
+            "lam", "varken", "speklapje", "spek", "ham", "worst", "salami", "chorizo",
+            "zalm", "tonijn", "haring", "makreel", "tilapia", "kabeljauw", "garnalen",
+            "mosselen", "inktvis", "vis ") -> Category.VLEES_VIS
+
+        n.hasAny("brood", "baguette", "beschuit", "bolletje", "stokbrood", "croissant",
+            "muffin", "bagel", "ciabatta", "pistolet", "roggebrood", "volkoren",
+            "tortilla", "wraptortilla") -> Category.BAKKERIJ
+
+        n.hasAny("water", "cola", "fanta", "sprite", "7up", "pepsi", "sap", "bier",
+            "wijn", "thee ", "koffie", "limonade", "frisdrank", "appelsap",
+            "sinaasappelsap", "smoothie", "redbull", "monster energy", "tonic",
+            "chocomel", "karnemelk") -> Category.DRANKEN
+
+        n.hasAny("diepvries", "vriesvers", "ijsje", "ijsco", "magnum", "cornetto") -> Category.DIEPVRIES
+
+        n.hasAny("chocolade", "snoep", "drop", "lolly", "kauwgom", "haribo", "mentos",
+            "stroopwafel", "koek", "chips", "popcorn", "nootjes", "wafels", "pepernoten",
+            "snickers", "twix", "kitkat", "bounty", "mars ") -> Category.SNOEP_KOEK
+
+        n.hasAny("zeep", "shampoo", "conditioner", "tandpasta", "tandenborstel",
+            "deodorant", "scheerschuim", "scheermesje", "maandverband", "tampon",
+            "wattenschijfjes", "bodylotion", "parfum", "zonnebrand") -> Category.VERZORGING
+
+        n.hasAny("wasmiddel", "afwasmiddel", "vaatwasmiddel", "schoonmaak", "bleek",
+            "allesreiniger", "wc-blok", "toiletrollen", "keukenpapier", "vuilniszakken",
+            "ziplock", "aluminiumfolie", "plasticfolie", "sponsje", "dweil") -> Category.HUISHOUDEN
+
+        else -> null
+    }
+}
+
+private fun String.hasAny(vararg words: String) = words.any { this.contains(it) }
+
+// ── Automatische categorie o.b.v. Open Food Facts tags ──────────────────────────────────────
 
 private fun autoCategory(tags: List<String>?, current: Category): Category {
     if (tags == null) return current
     return when {
-        tags.any { "fruit" in it || "vegetables" in it || "groente" in it } -> Category.GROENTE_FRUIT
-        tags.any { "dairy" in it || "milk" in it || "cheese" in it || "egg" in it } -> Category.ZUIVEL
-        tags.any { "meat" in it || "fish" in it || "vlees" in it || "vis" in it } -> Category.VLEES_VIS
-        tags.any { "bread" in it || "bakery" in it || "brood" in it } -> Category.BAKKERIJ
-        tags.any { "beverage" in it || "drink" in it || "juice" in it } -> Category.DRANKEN
+        tags.any { "fruit" in it || "vegetables" in it || "groente" in it ||
+                   "banana" in it || "apple" in it || "tomato" in it } -> Category.GROENTE_FRUIT
+        tags.any { "dairy" in it || "milk" in it || "cheese" in it ||
+                   "egg" in it || "butter" in it || "yogurt" in it } -> Category.ZUIVEL
+        tags.any { "meat" in it || "fish" in it || "vlees" in it ||
+                   "vis" in it || "seafood" in it || "poultry" in it } -> Category.VLEES_VIS
+        tags.any { "bread" in it || "bakery" in it || "brood" in it || "pastry" in it } -> Category.BAKKERIJ
+        tags.any { "beverage" in it || "drink" in it || "juice" in it ||
+                   "water" in it || "beer" in it || "wine" in it } -> Category.DRANKEN
         tags.any { "frozen" in it || "diepvries" in it } -> Category.DIEPVRIES
-        tags.any { "candy" in it || "snack" in it || "chocolate" in it } -> Category.SNOEP_KOEK
+        tags.any { "candy" in it || "snack" in it || "chocolate" in it ||
+                   "confectionery" in it || "biscuit" in it || "cookie" in it } -> Category.SNOEP_KOEK
         else -> current
     }
 }
 
-// ── Glass text field ──────────────────────────────────────────────────────────
+// ── Glass text field ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun GlassTextField(

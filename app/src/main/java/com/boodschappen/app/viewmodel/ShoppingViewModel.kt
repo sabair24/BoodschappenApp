@@ -236,10 +236,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             delay(600)
             localRepo.searchByName(query).fold(
                 onSuccess = { product ->
-                    _nameSearchState.value = if (product.getBestImage() != null)
-                        NameSearchState.Found(product)
-                    else
-                        NameSearchState.NotFound
+                    _nameSearchState.value = NameSearchState.Found(product)
                 },
                 onFailure = { _nameSearchState.value = NameSearchState.NotFound }
             )
