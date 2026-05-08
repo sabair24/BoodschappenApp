@@ -3,6 +3,7 @@ package com.boodschappen.app.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
@@ -16,9 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -27,13 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Canvas
 import com.boodschappen.app.BuildConfig
-import kotlin.random.Random
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
@@ -41,6 +40,7 @@ import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SortMode
 import com.boodschappen.app.viewmodel.SyncMode
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,10 +50,10 @@ fun ShoppingListScreen(
     onEditItem: (Long) -> Unit,
     onScanBarcode: () -> Unit
 ) {
-    val uiState        by viewModel.uiState.collectAsState()
-    val syncMode       by viewModel.syncMode.collectAsState()
-    val isDark         by viewModel.isDarkTheme.collectAsState()
-    val favoriteNames  by viewModel.favoriteNames.collectAsState()
+    val uiState       by viewModel.uiState.collectAsState()
+    val syncMode      by viewModel.syncMode.collectAsState()
+    val isDark        by viewModel.isDarkTheme.collectAsState()
+    val favoriteNames by viewModel.favoriteNames.collectAsState()
     val snackbar      = remember { SnackbarHostState() }
     val scope         = rememberCoroutineScope()
     val context       = LocalContext.current
@@ -196,32 +196,29 @@ fun ShoppingListScreen(
                                     AnimatedVisibility(
                                         visible = true,
                                         enter   = slideInHorizontally(
-                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-                                            initialOffsetX = { -it }
+                                            initialOffsetX = { it },
+                                            animationSpec  = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
                                         ) + fadeIn(),
-                                        exit    = slideOutHorizontally(
-                                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                            targetOffsetX = { it }
-                                        ) + fadeOut()
+                                        exit    = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
                                     ) {
                                         GlassItemRow(
-                                            item              = item,
-                                            isDark            = isDark,
-                                            onCheck           = { viewModel.toggleChecked(item) },
-                                            onEdit            = { onEditItem(item.id) },
-                                            onDelete          = { handleDelete(item) },
-                                            isFavorite        = item.name in favoriteNames,
-                                            onFavoriteToggle  = { viewModel.toggleFavorite(item.name) },
-                                            onIncrement = {
+                                            item             = item,
+                                            isDark           = isDark,
+                                            onCheck          = { viewModel.toggleChecked(item) },
+                                            onEdit           = { onEditItem(item.id) },
+                                            onDelete         = { handleDelete(item) },
+                                            onIncrement      = {
                                                 item.quantity.toDoubleOrNull()?.let { q ->
                                                     viewModel.updateItem(item.copy(quantity = formatQty(q + 1)))
                                                 }
                                             },
-                                            onDecrement = {
+                                            onDecrement      = {
                                                 item.quantity.toDoubleOrNull()?.let { q ->
                                                     if (q > 1) viewModel.updateItem(item.copy(quantity = formatQty(q - 1)))
                                                 }
-                                            }
+                                            },
+                                            isFavorite       = favoriteNames.contains(item.name),
+                                            onFavoriteToggle = { viewModel.toggleFavorite(item.name) }
                                         )
                                     }
                                 }
@@ -232,32 +229,29 @@ fun ShoppingListScreen(
                                 AnimatedVisibility(
                                     visible = true,
                                     enter   = slideInHorizontally(
-                                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-                                        initialOffsetX = { -it }
+                                        initialOffsetX = { it },
+                                        animationSpec  = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
                                     ) + fadeIn(),
-                                    exit    = slideOutHorizontally(
-                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                        targetOffsetX = { it }
-                                    ) + fadeOut()
+                                    exit    = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
                                 ) {
                                     GlassItemRow(
-                                        item              = item,
-                                        isDark            = isDark,
-                                        onCheck           = { viewModel.toggleChecked(item) },
-                                        onEdit            = { onEditItem(item.id) },
-                                        onDelete          = { handleDelete(item) },
-                                        isFavorite        = item.name in favoriteNames,
-                                        onFavoriteToggle  = { viewModel.toggleFavorite(item.name) },
-                                        onIncrement = {
+                                        item             = item,
+                                        isDark           = isDark,
+                                        onCheck          = { viewModel.toggleChecked(item) },
+                                        onEdit           = { onEditItem(item.id) },
+                                        onDelete         = { handleDelete(item) },
+                                        onIncrement      = {
                                             item.quantity.toDoubleOrNull()?.let { q ->
                                                 viewModel.updateItem(item.copy(quantity = formatQty(q + 1)))
                                             }
                                         },
-                                        onDecrement = {
+                                        onDecrement      = {
                                             item.quantity.toDoubleOrNull()?.let { q ->
                                                 if (q > 1) viewModel.updateItem(item.copy(quantity = formatQty(q - 1)))
                                             }
-                                        }
+                                        },
+                                        isFavorite       = favoriteNames.contains(item.name),
+                                        onFavoriteToggle = { viewModel.toggleFavorite(item.name) }
                                     )
                                 }
                             }
@@ -267,10 +261,6 @@ fun ShoppingListScreen(
             }
         }
     }
-
-    // Feest-overlay als alle items aangevinkt zijn
-    val allDone = uiState.items.isNotEmpty() && uiState.items.all { it.isChecked }
-    CelebrationOverlay(visible = allDone, isDark = isDark)
 
     if (showShareSheet) ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
 
@@ -292,6 +282,10 @@ fun ShoppingListScreen(
             onDismiss = { showDeleteCheckedDialog = false }
         )
     }
+
+    // Feest-overlay bij voltooide lijst
+    val allDone = uiState.items.isNotEmpty() && uiState.items.all { it.isChecked }
+    CelebrationOverlay(visible = allDone, isDark = isDark)
 }
 
 private fun formatQty(value: Double): String {
@@ -785,25 +779,24 @@ fun GlassItemRow(
                     }
                 }
 
-                // ── Ster (favoriet) knop ──────────────────────────────────────
-                val starScale by animateFloatAsState(
-                    targetValue   = if (isFavorite) 1.25f else 1f,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                    label         = "starScale"
-                )
+                // Ster-knop
                 Box(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onFavoriteToggle)
-                        .scale(starScale),
+                        .clickable(onClick = onFavoriteToggle),
                     contentAlignment = Alignment.Center
                 ) {
+                    val starScale by animateFloatAsState(
+                        targetValue = if (isFavorite) 1.2f else 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                        label = "star"
+                    )
                     Icon(
-                        if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                        contentDescription = "Favoriet",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                        null,
+                        modifier = Modifier.size(18.dp).scale(starScale),
+                        tint = if (isFavorite) Amber80 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                     )
                 }
 
@@ -1072,104 +1065,88 @@ fun EmptyState(
     }
 }
 
-// ── Celebration overlay ───────────────────────────────────────────────────────
-
-private data class ConfettiParticle(
-    val x: Float,
-    val y: Float,
-    val vx: Float,
-    val vy: Float,
-    val color: Color,
-    val radius: Float,
-    val rotation: Float,
-    val rotationSpeed: Float
-)
+// ── Feest-overlay bij voltooide lijst ────────────────────────────────────────
 
 @Composable
 fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
-    val confettiColors = listOf(
-        Color(0xFFFFC107), Color(0xFFFF5722), Color(0xFF4CAF50),
-        Color(0xFF2196F3), Color(0xFF9C27B0), Color(0xFFE91E63),
-        Color(0xFF00BCD4), Color(0xFFFF9800)
-    )
-
     AnimatedVisibility(
         visible = visible,
-        enter   = fadeIn(animationSpec = tween(400)),
-        exit    = fadeOut(animationSpec = tween(800))
+        enter   = fadeIn(tween(300)),
+        exit    = fadeOut(tween(500))
     ) {
-        var tick by remember { mutableStateOf(0) }
-        val particles = remember {
-            List(80) {
-                ConfettiParticle(
-                    x             = Random.nextFloat(),
-                    y             = Random.nextFloat(-0.2f, 0f),
-                    vx            = Random.nextFloat(-0.003f, 0.003f),
-                    vy            = Random.nextFloat(0.003f, 0.008f),
-                    color         = confettiColors.random(),
-                    radius        = Random.nextFloat(6f, 14f),
-                    rotation      = Random.nextFloat(0f, 360f),
-                    rotationSpeed = Random.nextFloat(-5f, 5f)
-                )
-            }
-        }
-
-        LaunchedEffect(visible) {
-            while (visible) {
-                kotlinx.coroutines.delay(16)
-                tick++
-            }
-        }
-
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
+            // Confetti canvas
+            val particles = remember { List(60) { ConfettiParticle() } }
+            val infiniteTransition = rememberInfiniteTransition(label = "confetti")
+            val progress by infiniteTransition.animateFloat(
+                initialValue   = 0f,
+                targetValue    = 1f,
+                animationSpec  = infiniteRepeatable(tween(3000, easing = LinearEasing)),
+                label          = "confetti_progress"
+            )
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val t = tick.toFloat()
                 particles.forEach { p ->
-                    val cx = ((p.x + p.vx * t) % 1f) * size.width
-                    val cy = ((p.y + p.vy * t) % 1.2f) * size.height
-                    if (cy < size.height) {
-                        drawCircle(
-                            color  = p.color.copy(alpha = 0.85f),
-                            radius = p.radius,
-                            center = Offset(cx, cy)
-                        )
-                    }
+                    val x = p.startX * size.width
+                    val y = ((p.startY + progress * p.speed) % 1f) * size.height
+                    val alpha = if (y / size.height > 0.85f) (1f - (y / size.height - 0.85f) / 0.15f) else 1f
+                    drawCircle(
+                        color  = p.color,
+                        radius = p.size,
+                        center = Offset(x, y),
+                        alpha  = alpha
+                    )
                 }
             }
+
+            // Centraal feestbericht
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(if (isDark) Dark700.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.92f))
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
             ) {
-                val bounce = rememberInfiniteTransition(label = "bounce")
-                val offsetY by bounce.animateFloat(
-                    initialValue  = -8f,
-                    targetValue   = 8f,
+                val bounceAnim = rememberInfiniteTransition(label = "bounce")
+                val emojiScale by bounceAnim.animateFloat(
+                    initialValue  = 1f,
+                    targetValue   = 1.15f,
                     animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
-                    label         = "bounceY"
+                    label         = "emoji_scale"
                 )
+                Text("🎉", fontSize = 56.sp, modifier = Modifier.scale(emojiScale))
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "🎉",
-                    fontSize = 72.sp,
-                    modifier = Modifier.offset(y = offsetY.dp)
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Lijst voltooid!",
-                    style      = MaterialTheme.typography.headlineMedium,
+                    "Lijst compleet!",
+                    style      = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
                     color      = if (isDark) Color.White else Color(0xFF1A1040)
                 )
                 Text(
-                    "Alle boodschappen zijn gedaan 🛍️",
+                    "Goed gedaan, alles is afgestreept!",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isDark) Color.White.copy(alpha = 0.8f) else Color(0xFF4A3880)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
     }
 }
+
+data class ConfettiParticle(
+    val startX : Float = Random.nextFloat(),
+    val startY : Float = Random.nextFloat(),
+    val speed  : Float = 0.2f + Random.nextFloat() * 0.5f,
+    val size   : Float = 6f + Random.nextFloat() * 8f,
+    val color  : androidx.compose.ui.graphics.Color = listOf(
+        androidx.compose.ui.graphics.Color(0xFFC4B5FD),
+        androidx.compose.ui.graphics.Color(0xFF6EE7B7),
+        androidx.compose.ui.graphics.Color(0xFFFDA4AF),
+        androidx.compose.ui.graphics.Color(0xFF67E8F9),
+        androidx.compose.ui.graphics.Color(0xFFFCD34D)
+    ).random()
+)
 
 // ── Glass dialog ──────────────────────────────────────────────────────────────
 
