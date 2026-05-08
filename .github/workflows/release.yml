@@ -3,7 +3,13 @@ name: 🚀 Build & Release
 on:
   push:
     tags:
-      - 'v*'   # triggert bij: git tag v1.5 && git push --tags
+      - 'v*'   # triggert bij: git tag v1.5 && git push origin v1.5
+  workflow_dispatch:
+    inputs:
+      version_override:
+        description: 'Versienaam overschrijven (leeg = uit build.gradle.kts)'
+        required: false
+        default: ''
 
 jobs:
   release:
@@ -24,12 +30,22 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── 3. Versie uit tag + build.gradle.kts halen ───────────────────────────
+      # ── 3. Versie uit tag / input / build.gradle.kts halen ───────────────────
       - name: Extract version
         id: version
         run: |
-          echo "name=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          # workflow_dispatch met override → gebruik die waarde
+          if [ -n "${{ github.event.inputs.version_override }}" ]; then
+            VER="${{ github.event.inputs.version_override }}"
+          # tag push → haal versie uit de tag
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            # fallback: lees uit build.gradle.kts
+            VER=$(grep 'versionName' app/build.gradle.kts | grep -o '"[^"]*"' | tr -d '"' | head -1)
+          fi
           CODE=$(grep 'versionCode' app/build.gradle.kts | grep -o '[0-9]\+' | head -1)
+          echo "name=$VER" >> $GITHUB_OUTPUT
           echo "code=$CODE" >> $GITHUB_OUTPUT
 
       # ── 4. APK bouwen ─────────────────────────────────────────────────────────
