@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingDatabase
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.util.guessCategoryFromName
 import com.boodschappen.app.data.remote.AppVersion
 import com.boodschappen.app.data.remote.FirestoreRepository
 import com.boodschappen.app.data.remote.UpdateRepository
@@ -18,6 +19,7 @@ import com.boodschappen.app.data.repository.ShoppingRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -194,6 +196,16 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
         observeSyncMode()
         loadRecentAndFavorites()
+        viewModelScope.launch { reCategorizeOverigItems() }
+    }
+
+    private suspend fun reCategorizeOverigItems() {
+        val items = localRepo.allItems.first()
+        items.filter { it.category == Category.OVERIG.displayName }.forEach { item ->
+            guessCategoryFromName(item.name)?.let { guessed ->
+                localRepo.updateItem(item.copy(category = guessed.displayName))
+            }
+        }
     }
 
     // ── Recente items & Favorieten ────────────────────────────────────────────

@@ -36,6 +36,7 @@ import coil.compose.AsyncImage
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
+import com.boodschappen.app.util.guessCategoryFromName
 import com.boodschappen.app.viewmodel.NameSearchState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.ScanState
@@ -162,7 +163,6 @@ fun AddEditItemScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
 
-                // ── Productafbeelding ──────────────────────────────────────────────
                 AnimatedVisibility(
                     visible = imageUrl != null,
                     enter   = expandVertically() + fadeIn(),
@@ -202,7 +202,6 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Naam + zoek-indicator ──────────────────────────────────
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     GlassTextField(
                         value           = name,
@@ -259,7 +258,6 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Recente & favoriete suggesties (alleen bij nieuw item) ─────
                 if (!isEditing && name.isBlank()) {
                     val favorites = recentItems.filter { favoriteNames.contains(it) }
                     val recents   = recentItems.filter { !favoriteNames.contains(it) }
@@ -284,7 +282,6 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Aantal + Eenheid ─────────────────────────────────────────────────────
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     GlassTextField(
                         value           = quantity,
@@ -321,7 +318,6 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Categorie ──────────────────────────────────────────────────────────────────
                 ExposedDropdownMenuBox(
                     expanded         = showCatPicker,
                     onExpandedChange = { showCatPicker = it }
@@ -365,7 +361,6 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Notitie ────────────────────────────────────────────────────────────────────────────
                 GlassTextField(
                     value         = note,
                     onValueChange = { note = it },
@@ -379,7 +374,6 @@ fun AddEditItemScreen(
                     }
                 )
 
-                // ── Barcode badge ──────────────────────────────────────────────────────────────────
                 if (barcode != null) {
                     Row(
                         modifier = Modifier
@@ -404,7 +398,6 @@ fun AddEditItemScreen(
 
                 Spacer(Modifier.height(4.dp))
 
-                // ── Opslaan-knop met spring-animatie ───────────────────────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -464,8 +457,6 @@ fun AddEditItemScreen(
     }
 }
 
-// ── Suggestiechips ──────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun SuggestionRow(
     label: String,
@@ -494,62 +485,6 @@ private fun SuggestionRow(
     }
 }
 
-// ── Lokale categorieherkenning op naam (offline, instant) ─────────────────────────
-
-private fun guessCategoryFromName(name: String): Category? {
-    val n = name.lowercase()
-    return when {
-        n.hasAny("banaan", "appel", "peer", "druif", "aardbei", "framboos", "bosbes",
-            "braam", "sinaasappel", "mandarijn", "citroen", "limoen", "mango", "ananas",
-            "kiwi", "perzik", "pruim", "kers", "meloen", "watermeloen", "vijg", "dadel",
-            "papaja", "lychee", "passievrucht", "tomaat", "komkommer", "paprika", "sla",
-            "spinazie", "wortel", "broccoli", "bloemkool", "spruitjes", "ui", "knoflook",
-            "aardappel", "zoete aardappel", "courgette", "aubergine", "prei", "champignon",
-            "paddenstoel", "avocado", "gember", "selderij", "paksoi", "andijvie", "witlof",
-            "radijs", "biet", "mais", "erwtjes", "doperwten", "tuinbonen", "asperge",
-            "artisjok", "venkel", "rucola", "postelein") -> Category.GROENTE_FRUIT
-
-        n.hasAny("melk", "kaas", "boter", "yoghurt", "kwark", "room", "vla", "slagroom",
-            "mozzarella", "cheddar", "gouda", "brie", "camembert", "ricotta", "feta",
-            "parmezan", "halvarine", "margarine", "creme fraiche", "crème fraîche",
-            "eieren", "ei ") -> Category.ZUIVEL
-
-        n.hasAny("kip", "gehakt", "biefstuk", "tartaar", "schnitzel", "kalkoen", "eend",
-            "lam", "varken", "speklapje", "spek", "ham", "worst", "salami", "chorizo",
-            "zalm", "tonijn", "haring", "makreel", "tilapia", "kabeljauw", "garnalen",
-            "mosselen", "inktvis", "vis ") -> Category.VLEES_VIS
-
-        n.hasAny("brood", "baguette", "beschuit", "bolletje", "stokbrood", "croissant",
-            "muffin", "bagel", "ciabatta", "pistolet", "roggebrood", "volkoren",
-            "tortilla", "wraptortilla") -> Category.BAKKERIJ
-
-        n.hasAny("water", "cola", "fanta", "sprite", "7up", "pepsi", "sap", "bier",
-            "wijn", "thee ", "koffie", "limonade", "frisdrank", "appelsap",
-            "sinaasappelsap", "smoothie", "redbull", "monster energy", "tonic",
-            "chocomel", "karnemelk") -> Category.DRANKEN
-
-        n.hasAny("diepvries", "vriesvers", "ijsje", "ijsco", "magnum", "cornetto") -> Category.DIEPVRIES
-
-        n.hasAny("chocolade", "snoep", "drop", "lolly", "kauwgom", "haribo", "mentos",
-            "stroopwafel", "koek", "chips", "popcorn", "nootjes", "wafels", "pepernoten",
-            "snickers", "twix", "kitkat", "bounty", "mars ") -> Category.SNOEP_KOEK
-
-        n.hasAny("zeep", "shampoo", "conditioner", "tandpasta", "tandenborstel",
-            "deodorant", "scheerschuim", "scheermesje", "maandverband", "tampon",
-            "wattenschijfjes", "bodylotion", "parfum", "zonnebrand") -> Category.VERZORGING
-
-        n.hasAny("wasmiddel", "afwasmiddel", "vaatwasmiddel", "schoonmaak", "bleek",
-            "allesreiniger", "wc-blok", "toiletrollen", "keukenpapier", "vuilniszakken",
-            "ziplock", "aluminiumfolie", "plasticfolie", "sponsje", "dweil") -> Category.HUISHOUDEN
-
-        else -> null
-    }
-}
-
-private fun String.hasAny(vararg words: String) = words.any { this.contains(it) }
-
-// ── Automatische categorie o.b.v. Open Food Facts tags ──────────────────────────────────────
-
 private fun autoCategory(tags: List<String>?, current: Category): Category {
     if (tags == null) return current
     return when {
@@ -568,8 +503,6 @@ private fun autoCategory(tags: List<String>?, current: Category): Category {
         else -> current
     }
 }
-
-// ── Glass text field ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun GlassTextField(
