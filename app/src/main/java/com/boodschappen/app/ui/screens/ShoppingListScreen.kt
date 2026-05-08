@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.boodschappen.app.BuildConfig
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
@@ -101,7 +102,8 @@ fun ShoppingListScreen(
                     onExport         = { viewModel.shareList(context) },
                     onDeleteChecked  = { showDeleteCheckedDialog = true },
                     onDeleteAll      = { showDeleteDialog = true },
-                    onSortChange     = { viewModel.setSortMode(it) }
+                    onSortChange     = { viewModel.setSortMode(it) },
+                    onCheckUpdate    = { viewModel.checkForUpdate(BuildConfig.VERSION_CODE) }
                 )
             },
             floatingActionButton = {
@@ -343,7 +345,8 @@ private fun TopBar(
     onExport: () -> Unit,
     onDeleteChecked: () -> Unit,
     onDeleteAll: () -> Unit,
-    onSortChange: (SortMode) -> Unit
+    onSortChange: (SortMode) -> Unit,
+    onCheckUpdate: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -415,6 +418,11 @@ private fun TopBar(
                 expanded         = menuExpanded,
                 onDismissRequest = { menuExpanded = false }
             ) {
+                DropdownMenuItem(
+                    text        = { Text("Controleer op updates") },
+                    leadingIcon = { Icon(Icons.Outlined.SystemUpdate, null) },
+                    onClick     = { menuExpanded = false; onCheckUpdate() }
+                )
                 DropdownMenuItem(
                     text        = { Text("Lijst exporteren") },
                     leadingIcon = { Icon(Icons.Outlined.Share, null) },

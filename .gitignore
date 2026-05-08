@@ -16,3 +16,6 @@ app/debug/
 *.ap_
 *.dex
 *.class
+
+# Firebase credentials (nooit committen!)
+scripts/service-account.json
