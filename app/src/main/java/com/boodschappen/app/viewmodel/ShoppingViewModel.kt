@@ -16,6 +16,7 @@ import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
 import com.boodschappen.app.data.repository.ShoppingRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -74,6 +75,13 @@ sealed class ScanState {
     data class Found(val product: ProductDto, val barcode: String) : ScanState()
     data class NotFound(val barcode: String) : ScanState()
     data class Error(val message: String) : ScanState()
+}
+
+sealed class NameSearchState {
+    object Idle : NameSearchState()
+    object Searching : NameSearchState()
+    data class Found(val product: ProductDto) : NameSearchState()
+    object NotFound : NameSearchState()
 }
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -156,6 +164,19 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
+    // ── Naam-zoeken ───────────────────────────────────────────────────────────
+    private val _nameSearchState = MutableStateFlow<NameSearchState>(NameSearchState.Idle)
+    val nameSearchState: StateFlow<NameSearchState> = _nameSearchState.asStateFlow()
+    private var nameSearchJob: Job? = null
+
+    // ── Recente items ─────────────────────────────────────────────────────────
+    private val _recentItems = MutableStateFlow<List<String>>(emptyList())
+    val recentItems: StateFlow<List<String>> = _recentItems.asStateFlow()
+
+    // ── Favorieten ────────────────────────────────────────────────────────────
+    private val _favoriteNames = MutableStateFlow<Set<String>>(emptySet())
+    val favoriteNames: StateFlow<Set<String>> = _favoriteNames.asStateFlow()
+
     // ── Snackbar ──────────────────────────────────────────────────────────────
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
@@ -172,7 +193,60 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         localRepo = ShoppingRepository(db.shoppingDao(), api)
 
         observeSyncMode()
+        loadRecentAndFavorites()
     }
+
+    // ── Recente items & Favorieten ────────────────────────────────────────────
+
+    private fun loadRecentAndFavorites() {
+        val raw = prefs.getString("recent_items", "") ?: ""
+        _recentItems.value = raw.split("|||").filter { it.isNotBlank() }.take(20)
+        _favoriteNames.value = prefs.getStringSet("favorite_items", emptySet()) ?: emptySet()
+    }
+
+    fun addToRecent(name: String) {
+        val trimmed = name.trim().ifBlank { return }
+        val list = _recentItems.value.toMutableList().apply {
+            remove(trimmed)
+            add(0, trimmed)
+        }.take(20)
+        _recentItems.value = list
+        prefs.edit().putString("recent_items", list.joinToString("|||")).apply()
+    }
+
+    fun toggleFavorite(name: String) {
+        val trimmed = name.trim().ifBlank { return }
+        val set = _favoriteNames.value.toMutableSet()
+        if (!set.add(trimmed)) set.remove(trimmed)
+        val limited = set.take(20).toSet()
+        _favoriteNames.value = limited
+        prefs.edit().putStringSet("favorite_items", limited).apply()
+    }
+
+    // ── Naam-zoeken (debounced) ───────────────────────────────────────────────
+
+    fun searchProductByName(query: String) {
+        nameSearchJob?.cancel()
+        if (query.length < 3) {
+            _nameSearchState.value = NameSearchState.Idle
+            return
+        }
+        _nameSearchState.value = NameSearchState.Searching
+        nameSearchJob = viewModelScope.launch {
+            delay(600)
+            localRepo.searchByName(query).fold(
+                onSuccess = { product ->
+                    _nameSearchState.value = if (product.getBestImage() != null)
+                        NameSearchState.Found(product)
+                    else
+                        NameSearchState.NotFound
+                },
+                onFailure = { _nameSearchState.value = NameSearchState.NotFound }
+            )
+        }
+    }
+
+    fun resetNameSearch() { _nameSearchState.value = NameSearchState.Idle }
 
     // ── Mode switching ────────────────────────────────────────────────────────
 
@@ -289,6 +363,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     // ── CRUD — routes to Room or MQTT depending on mode ───────────────────────
 
     fun addItem(item: ShoppingItem) {
+        addToRecent(item.name)
         viewModelScope.launch {
             when (val mode = _syncMode.value) {
                 is SyncMode.Local -> {

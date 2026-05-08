@@ -31,4 +31,17 @@ class ShoppingRepository(
             Result.failure(e)
         }
     }
+
+    suspend fun searchByName(query: String): Result<ProductDto> {
+        return try {
+            val response = api.searchByName(query)
+            // Kies het eerste resultaat met een afbeelding
+            val product = response.products.firstOrNull { it.getBestImage() != null }
+                ?: response.products.firstOrNull()
+            if (product != null) Result.success(product)
+            else Result.failure(Exception("Geen resultaat"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

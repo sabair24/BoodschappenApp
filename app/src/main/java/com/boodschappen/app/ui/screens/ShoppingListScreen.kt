@@ -27,9 +27,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
 import com.boodschappen.app.BuildConfig
+import kotlin.random.Random
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
@@ -46,9 +50,10 @@ fun ShoppingListScreen(
     onEditItem: (Long) -> Unit,
     onScanBarcode: () -> Unit
 ) {
-    val uiState       by viewModel.uiState.collectAsState()
-    val syncMode      by viewModel.syncMode.collectAsState()
-    val isDark        by viewModel.isDarkTheme.collectAsState()
+    val uiState        by viewModel.uiState.collectAsState()
+    val syncMode       by viewModel.syncMode.collectAsState()
+    val isDark         by viewModel.isDarkTheme.collectAsState()
+    val favoriteNames  by viewModel.favoriteNames.collectAsState()
     val snackbar      = remember { SnackbarHostState() }
     val scope         = rememberCoroutineScope()
     val context       = LocalContext.current
@@ -190,15 +195,23 @@ fun ShoppingListScreen(
                                 items(items, key = { it.id }) { item ->
                                     AnimatedVisibility(
                                         visible = true,
-                                        enter   = fadeIn() + slideInVertically { it / 2 },
-                                        exit    = fadeOut() + slideOutHorizontally()
+                                        enter   = slideInHorizontally(
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                                            initialOffsetX = { -it }
+                                        ) + fadeIn(),
+                                        exit    = slideOutHorizontally(
+                                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                            targetOffsetX = { it }
+                                        ) + fadeOut()
                                     ) {
                                         GlassItemRow(
-                                            item        = item,
-                                            isDark      = isDark,
-                                            onCheck     = { viewModel.toggleChecked(item) },
-                                            onEdit      = { onEditItem(item.id) },
-                                            onDelete    = { handleDelete(item) },
+                                            item              = item,
+                                            isDark            = isDark,
+                                            onCheck           = { viewModel.toggleChecked(item) },
+                                            onEdit            = { onEditItem(item.id) },
+                                            onDelete          = { handleDelete(item) },
+                                            isFavorite        = item.name in favoriteNames,
+                                            onFavoriteToggle  = { viewModel.toggleFavorite(item.name) },
                                             onIncrement = {
                                                 item.quantity.toDoubleOrNull()?.let { q ->
                                                     viewModel.updateItem(item.copy(quantity = formatQty(q + 1)))
@@ -218,15 +231,23 @@ fun ShoppingListScreen(
                             items(uiState.items, key = { it.id }) { item ->
                                 AnimatedVisibility(
                                     visible = true,
-                                    enter   = fadeIn() + slideInVertically { it / 2 },
-                                    exit    = fadeOut() + slideOutHorizontally()
+                                    enter   = slideInHorizontally(
+                                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                                        initialOffsetX = { -it }
+                                    ) + fadeIn(),
+                                    exit    = slideOutHorizontally(
+                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        targetOffsetX = { it }
+                                    ) + fadeOut()
                                 ) {
                                     GlassItemRow(
-                                        item        = item,
-                                        isDark      = isDark,
-                                        onCheck     = { viewModel.toggleChecked(item) },
-                                        onEdit      = { onEditItem(item.id) },
-                                        onDelete    = { handleDelete(item) },
+                                        item              = item,
+                                        isDark            = isDark,
+                                        onCheck           = { viewModel.toggleChecked(item) },
+                                        onEdit            = { onEditItem(item.id) },
+                                        onDelete          = { handleDelete(item) },
+                                        isFavorite        = item.name in favoriteNames,
+                                        onFavoriteToggle  = { viewModel.toggleFavorite(item.name) },
                                         onIncrement = {
                                             item.quantity.toDoubleOrNull()?.let { q ->
                                                 viewModel.updateItem(item.copy(quantity = formatQty(q + 1)))
@@ -246,6 +267,10 @@ fun ShoppingListScreen(
             }
         }
     }
+
+    // Feest-overlay als alle items aangevinkt zijn
+    val allDone = uiState.items.isNotEmpty() && uiState.items.all { it.isChecked }
+    CelebrationOverlay(visible = allDone, isDark = isDark)
 
     if (showShareSheet) ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
 
@@ -623,7 +648,9 @@ fun GlassItemRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onIncrement: () -> Unit = {},
-    onDecrement: () -> Unit = {}
+    onDecrement: () -> Unit = {},
+    isFavorite: Boolean = false,
+    onFavoriteToggle: () -> Unit = {}
 ) {
     val catColor     = categoryColor(item.category, isDark)
     val qtyNum       = item.quantity.toDoubleOrNull()
@@ -756,6 +783,28 @@ fun GlassItemRow(
                             maxLines = 1
                         )
                     }
+                }
+
+                // ── Ster (favoriet) knop ──────────────────────────────────────
+                val starScale by animateFloatAsState(
+                    targetValue   = if (isFavorite) 1.25f else 1f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label         = "starScale"
+                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onFavoriteToggle)
+                        .scale(starScale),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                        contentDescription = "Favoriet",
+                        modifier = Modifier.size(20.dp),
+                        tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
                 }
 
                 // ── Quantity badge with +/- controls ──────────────────────────
@@ -1018,6 +1067,105 @@ fun EmptyState(
                     Spacer(Modifier.width(6.dp))
                     Text("Toevoegen", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
+            }
+        }
+    }
+}
+
+// ── Celebration overlay ───────────────────────────────────────────────────────
+
+private data class ConfettiParticle(
+    val x: Float,
+    val y: Float,
+    val vx: Float,
+    val vy: Float,
+    val color: Color,
+    val radius: Float,
+    val rotation: Float,
+    val rotationSpeed: Float
+)
+
+@Composable
+fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
+    val confettiColors = listOf(
+        Color(0xFFFFC107), Color(0xFFFF5722), Color(0xFF4CAF50),
+        Color(0xFF2196F3), Color(0xFF9C27B0), Color(0xFFE91E63),
+        Color(0xFF00BCD4), Color(0xFFFF9800)
+    )
+
+    AnimatedVisibility(
+        visible = visible,
+        enter   = fadeIn(animationSpec = tween(400)),
+        exit    = fadeOut(animationSpec = tween(800))
+    ) {
+        var tick by remember { mutableStateOf(0) }
+        val particles = remember {
+            List(80) {
+                ConfettiParticle(
+                    x             = Random.nextFloat(),
+                    y             = Random.nextFloat(-0.2f, 0f),
+                    vx            = Random.nextFloat(-0.003f, 0.003f),
+                    vy            = Random.nextFloat(0.003f, 0.008f),
+                    color         = confettiColors.random(),
+                    radius        = Random.nextFloat(6f, 14f),
+                    rotation      = Random.nextFloat(0f, 360f),
+                    rotationSpeed = Random.nextFloat(-5f, 5f)
+                )
+            }
+        }
+
+        LaunchedEffect(visible) {
+            while (visible) {
+                kotlinx.coroutines.delay(16)
+                tick++
+            }
+        }
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val t = tick.toFloat()
+                particles.forEach { p ->
+                    val cx = ((p.x + p.vx * t) % 1f) * size.width
+                    val cy = ((p.y + p.vy * t) % 1.2f) * size.height
+                    if (cy < size.height) {
+                        drawCircle(
+                            color  = p.color.copy(alpha = 0.85f),
+                            radius = p.radius,
+                            center = Offset(cx, cy)
+                        )
+                    }
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val bounce = rememberInfiniteTransition(label = "bounce")
+                val offsetY by bounce.animateFloat(
+                    initialValue  = -8f,
+                    targetValue   = 8f,
+                    animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+                    label         = "bounceY"
+                )
+                Text(
+                    "🎉",
+                    fontSize = 72.sp,
+                    modifier = Modifier.offset(y = offsetY.dp)
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Lijst voltooid!",
+                    style      = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color      = if (isDark) Color.White else Color(0xFF1A1040)
+                )
+                Text(
+                    "Alle boodschappen zijn gedaan 🛍️",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isDark) Color.White.copy(alpha = 0.8f) else Color(0xFF4A3880)
+                )
             }
         }
     }

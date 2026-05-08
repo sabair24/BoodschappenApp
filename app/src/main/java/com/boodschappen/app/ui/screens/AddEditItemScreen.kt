@@ -1,9 +1,13 @@
 package com.boodschappen.app.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -31,7 +36,9 @@ import coil.compose.AsyncImage
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
+import com.boodschappen.app.viewmodel.NameSearchState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
+import com.boodschappen.app.viewmodel.ScanState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +60,10 @@ fun AddEditItemScreen(
     var brand        by remember { mutableStateOf<String?>(null) }
     var barcode      by remember { mutableStateOf<String?>(null) }
 
-    val scanState by viewModel.scanState.collectAsState()
+    val scanState       by viewModel.scanState.collectAsState()
+    val nameSearchState by viewModel.nameSearchState.collectAsState()
+    val recentItems     by viewModel.recentItems.collectAsState()
+    val favoriteNames   by viewModel.favoriteNames.collectAsState()
 
     LaunchedEffect(itemId) {
         if (itemId != null) {
@@ -64,27 +74,42 @@ fun AddEditItemScreen(
             }
         }
     }
+
     LaunchedEffect(scanState) {
         val s = scanState
-        if (s is com.boodschappen.app.viewmodel.ScanState.Found && !isEditing) {
-            name = s.product.getBestName() ?: ""
-            brand = s.product.brands?.split(",")?.firstOrNull()?.trim()
+        if (s is ScanState.Found && !isEditing) {
+            name     = s.product.getBestName() ?: ""
+            brand    = s.product.brands?.split(",")?.firstOrNull()?.trim()
             imageUrl = s.product.getBestImage()
-            barcode = s.barcode
+            barcode  = s.barcode
+            selectedCat = autoCategory(s.product.categories_tags, selectedCat)
             viewModel.resetScanState()
         }
     }
 
-    val nameValid = name.isNotBlank()
+    LaunchedEffect(nameSearchState) {
+        val s = nameSearchState
+        if (s is NameSearchState.Found && imageUrl == null) {
+            imageUrl    = s.product.getBestImage()
+            if (brand == null) brand = s.product.brands?.split(",")?.firstOrNull()?.trim()
+            selectedCat = autoCategory(s.product.categories_tags, selectedCat)
+        }
+    }
+
+    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch() } }
+
+    val nameValid      = name.isNotBlank()
     var showCatPicker  by remember { mutableStateOf(false) }
     var showUnitPicker by remember { mutableStateOf(false) }
-    val catColor = categoryColor(selectedCat.displayName, isDark)
+    val catColor       = categoryColor(selectedCat.displayName, isDark)
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(brush = gradientBackground(isDark))
-    ) {
+    val saveScale by animateFloatAsState(
+        targetValue   = if (nameValid) 1f else 0.95f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label         = "save_scale"
+    )
+
+    Box(modifier = Modifier.fillMaxSize().background(brush = gradientBackground(isDark))) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -105,11 +130,20 @@ fun AddEditItemScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                "Terug",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Terug",
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
+                    },
+                    actions = {
+                        if (name.isNotBlank()) {
+                            val isFav = favoriteNames.contains(name.trim())
+                            IconButton(onClick = { viewModel.toggleFavorite(name.trim()) }) {
+                                Icon(
+                                    if (isFav) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                    "Favoriet",
+                                    tint = if (isFav) Amber80 else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 )
@@ -124,8 +158,12 @@ fun AddEditItemScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
 
-                // ── Product image preview ─────────────────────────────────────
-                if (imageUrl != null) {
+                // ── Productafbeelding ──────────────────────────────────────────
+                AnimatedVisibility(
+                    visible = imageUrl != null,
+                    enter   = expandVertically() + fadeIn(),
+                    exit    = shrinkVertically() + fadeOut()
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -137,25 +175,18 @@ fun AddEditItemScreen(
                             model = imageUrl, contentDescription = name,
                             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
                         )
-                        // Glass overlay top-right close button
                         Box(
                             modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                                .size(34.dp)
-                                .clip(CircleShape)
+                                .align(Alignment.TopEnd).padding(10.dp)
+                                .size(34.dp).clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.45f))
                                 .clickable { imageUrl = null },
                             contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Close, null, tint = Color.White,
-                                modifier = Modifier.size(16.dp))
-                        }
+                        ) { Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
                         if (brand != null) {
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(10.dp)
+                                    .align(Alignment.BottomStart).padding(10.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(Color.Black.copy(alpha = 0.55f))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -167,40 +198,102 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Name field ────────────────────────────────────────────────
-                GlassTextField(
-                    value           = name,
-                    onValueChange   = { name = it },
-                    label           = "Productnaam *",
-                    placeholder     = "bijv. Melk, Brood, Appels...",
-                    leadingEmoji    = "🏷️",
-                    isDark          = isDark,
-                    trailingIcon    = if (name.isNotBlank()) {
-                        { IconButton(onClick = { name = "" }) {
-                            Icon(Icons.Default.Clear, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }}
-                    } else null,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                )
-
-                // ── Quantity + Unit ───────────────────────────────────────────
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // ── Naam + zoek-indicator ──────────────────────────────────────
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     GlassTextField(
-                        value         = quantity,
-                        onValueChange = { quantity = it },
-                        label         = "Aantal",
-                        isDark        = isDark,
-                        modifier      = Modifier.weight(0.45f),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal,
-                            imeAction    = ImeAction.Next
-                        )
+                        value           = name,
+                        onValueChange   = { v ->
+                            name = v
+                            if (!isEditing) viewModel.searchProductByName(v)
+                        },
+                        label           = "Productnaam *",
+                        placeholder     = "bijv. Banaan, Broccoli, Melk...",
+                        leadingEmoji    = "🏷️",
+                        isDark          = isDark,
+                        trailingIcon    = when {
+                            nameSearchState is NameSearchState.Searching -> {
+                                { CircularProgressIndicator(
+                                    modifier    = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color       = MaterialTheme.colorScheme.primary
+                                )}
+                            }
+                            name.isNotBlank() -> {
+                                { IconButton(onClick = {
+                                    name = ""
+                                    imageUrl = null
+                                    brand = null
+                                    viewModel.resetNameSearch()
+                                }) {
+                                    Icon(Icons.Default.Clear, null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }}
+                            }
+                            else -> null
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                     )
 
+                    AnimatedVisibility(visible = nameSearchState is NameSearchState.Found && imageUrl != null) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isDark) Emerald20.copy(0.3f) else Emerald90)
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.ImageSearch, null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (isDark) Emerald80 else Emerald40)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Afbeelding automatisch gevonden",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Emerald80 else Emerald40)
+                        }
+                    }
+                }
+
+                // ── Recente & favoriete suggesties (alleen bij nieuw item) ─────
+                if (!isEditing && name.isBlank()) {
+                    val favorites = recentItems.filter { favoriteNames.contains(it) }
+                    val recents   = recentItems.filter { !favoriteNames.contains(it) }
+
+                    if (favorites.isNotEmpty()) {
+                        SuggestionRow(
+                            label   = "⭐ Favorieten",
+                            items   = favorites.take(10),
+                            color   = Amber80,
+                            isDark  = isDark,
+                            onClick = { name = it; viewModel.searchProductByName(it) }
+                        )
+                    }
+                    if (recents.isNotEmpty()) {
+                        SuggestionRow(
+                            label   = "🕐 Recent",
+                            items   = recents.take(10),
+                            color   = if (isDark) Violet80 else Violet40,
+                            isDark  = isDark,
+                            onClick = { name = it; viewModel.searchProductByName(it) }
+                        )
+                    }
+                }
+
+                // ── Aantal + Eenheid ───────────────────────────────────────────
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlassTextField(
+                        value           = quantity,
+                        onValueChange   = { quantity = it },
+                        label           = "Aantal",
+                        isDark          = isDark,
+                        modifier        = Modifier.weight(0.45f),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next
+                        )
+                    )
                     ExposedDropdownMenuBox(
-                        expanded = showUnitPicker,
+                        expanded         = showUnitPicker,
                         onExpandedChange = { showUnitPicker = it },
-                        modifier = Modifier.weight(0.55f)
+                        modifier         = Modifier.weight(0.55f)
                     ) {
                         GlassTextField(
                             value         = unit.ifBlank { "stuk" },
@@ -222,19 +315,16 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Category picker ───────────────────────────────────────────
+                // ── Categorie ──────────────────────────────────────────────────
                 ExposedDropdownMenuBox(
-                    expanded = showCatPicker,
+                    expanded         = showCatPicker,
                     onExpandedChange = { showCatPicker = it }
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (isDark) catColor.copy(alpha = 0.12f)
-                                else catColor.copy(alpha = 0.08f)
-                            )
+                            .background(if (isDark) catColor.copy(alpha = 0.12f) else catColor.copy(alpha = 0.08f))
                             .border(1.dp, catColor.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
                     ) {
                         GlassTextField(
@@ -254,15 +344,13 @@ fun AddEditItemScreen(
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            Modifier.size(8.dp).clip(CircleShape).background(cc)
-                                        )
+                                        Box(Modifier.size(8.dp).clip(CircleShape).background(cc))
                                         Spacer(Modifier.width(10.dp))
                                         Text("${cat.emoji} ${cat.displayName}",
                                             color = if (selectedCat == cat) cc else MaterialTheme.colorScheme.onSurface)
                                     }
                                 },
-                                onClick = { selectedCat = cat; showCatPicker = false },
+                                onClick     = { selectedCat = cat; showCatPicker = false },
                                 leadingIcon = if (selectedCat == cat) {
                                     { Icon(Icons.Default.Check, null, tint = cc) }
                                 } else null
@@ -271,7 +359,7 @@ fun AddEditItemScreen(
                     }
                 }
 
-                // ── Note field ────────────────────────────────────────────────
+                // ── Notitie ────────────────────────────────────────────────────
                 GlassTextField(
                     value         = note,
                     onValueChange = { note = it },
@@ -285,7 +373,7 @@ fun AddEditItemScreen(
                     }
                 )
 
-                // ── Barcode badge ─────────────────────────────────────────────
+                // ── Barcode badge ──────────────────────────────────────────────
                 if (barcode != null) {
                     Row(
                         modifier = Modifier
@@ -310,11 +398,12 @@ fun AddEditItemScreen(
 
                 Spacer(Modifier.height(4.dp))
 
-                // ── Save button with gradient ─────────────────────────────────
+                // ── Opslaan-knop met spring-animatie ───────────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
+                        .scale(saveScale)
                         .clip(RoundedCornerShape(18.dp))
                         .background(
                             if (nameValid) Brush.linearGradient(
@@ -349,17 +438,16 @@ fun AddEditItemScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            if (isEditing) Icons.Default.Check else Icons.Default.Add,
-                            null,
+                            if (isEditing) Icons.Default.Check else Icons.Default.Add, null,
                             tint = if (nameValid) Color.White else Color.Gray,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             if (isEditing) "Opslaan" else "Toevoegen",
-                            style  = MaterialTheme.typography.titleMedium,
+                            style      = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color  = if (nameValid) Color.White else Color.Gray
+                            color      = if (nameValid) Color.White else Color.Gray
                         )
                     }
                 }
@@ -367,6 +455,52 @@ fun AddEditItemScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+// ── Suggestiechips ────────────────────────────────────────────────────────────
+
+@Composable
+private fun SuggestionRow(
+    label: String,
+    items: List<String>,
+    color: Color,
+    isDark: Boolean,
+    onClick: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold, color = color)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(items) { item ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(color.copy(alpha = if (isDark) 0.15f else 0.10f))
+                        .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(50.dp))
+                        .clickable { onClick(item) }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Text(item, style = MaterialTheme.typography.labelMedium, color = color)
+                }
+            }
+        }
+    }
+}
+
+// ── Automatische categorie o.b.v. Open Food Facts tags ───────────────────────
+
+private fun autoCategory(tags: List<String>?, current: Category): Category {
+    if (tags == null) return current
+    return when {
+        tags.any { "fruit" in it || "vegetables" in it || "groente" in it } -> Category.GROENTE_FRUIT
+        tags.any { "dairy" in it || "milk" in it || "cheese" in it || "egg" in it } -> Category.ZUIVEL
+        tags.any { "meat" in it || "fish" in it || "vlees" in it || "vis" in it } -> Category.VLEES_VIS
+        tags.any { "bread" in it || "bakery" in it || "brood" in it } -> Category.BAKKERIJ
+        tags.any { "beverage" in it || "drink" in it || "juice" in it } -> Category.DRANKEN
+        tags.any { "frozen" in it || "diepvries" in it } -> Category.DIEPVRIES
+        tags.any { "candy" in it || "snack" in it || "chocolate" in it } -> Category.SNOEP_KOEK
+        else -> current
     }
 }
 
@@ -392,7 +526,9 @@ private fun GlassTextField(
         value          = value,
         onValueChange  = onValueChange,
         label          = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        placeholder    = if (placeholder.isNotBlank()) { { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) } } else null,
+        placeholder    = if (placeholder.isNotBlank()) {
+            { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) }
+        } else null,
         leadingIcon    = leadingEmoji?.let { emoji ->
             { Text(emoji, fontSize = 18.sp, modifier = Modifier.padding(start = 4.dp)) }
         } ?: leadingIcon,

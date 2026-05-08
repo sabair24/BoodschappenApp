@@ -2,11 +2,26 @@ package com.boodschappen.app.data.remote
 
 import retrofit2.http.GET
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface OpenFoodFactsApi {
     @GET("api/v0/product/{barcode}.json")
     suspend fun getProduct(@Path("barcode") barcode: String): ProductResponse
+
+    @GET("cgi/search.pl")
+    suspend fun searchByName(
+        @Query("search_terms")  query:      String,
+        @Query("search_simple") simple:     Int    = 1,
+        @Query("action")        action:     String = "process",
+        @Query("json")          json:       Int    = 1,
+        @Query("page_size")     pageSize:   Int    = 5,
+        @Query("fields")        fields:     String = "product_name,product_name_nl,brands,image_front_url,image_url,categories_tags"
+    ): SearchResponse
 }
+
+data class SearchResponse(
+    val products: List<ProductDto> = emptyList()
+)
 
 data class ProductResponse(
     val status: Int = 0,
@@ -25,5 +40,5 @@ data class ProductDto(
     val nutriscore_grade: String? = null
 ) {
     fun getBestName(): String? = product_name_nl?.takeIf { it.isNotBlank() } ?: product_name?.takeIf { it.isNotBlank() }
-    fun getBestImage(): String? = image_front_url ?: image_url
+    fun getBestImage(): String? = image_front_url?.takeIf { it.isNotBlank() } ?: image_url?.takeIf { it.isNotBlank() }
 }
