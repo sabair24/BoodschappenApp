@@ -38,6 +38,14 @@ sealed class ShareUiState {
     data class Error(val message: String) : ShareUiState()
 }
 
+// ── Sort mode ─────────────────────────────────────────────────────────────────
+
+enum class SortMode(val label: String) {
+    CATEGORY("Op categorie"),
+    NAME("Op naam A–Z"),
+    DATE_ADDED("Nieuwste eerst")
+}
+
 // ── General UI state ──────────────────────────────────────────────────────────
 
 data class UiState(
@@ -45,7 +53,9 @@ data class UiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val filterCategory: String? = null,
-    val showChecked: Boolean = true
+    val showChecked: Boolean = true,
+    val searchQuery: String = "",
+    val sortMode: SortMode = SortMode.CATEGORY
 )
 
 // ── Update state ──────────────────────────────────────────────────────────────
@@ -140,6 +150,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    private var rawItemsCache: List<ShoppingItem> = emptyList()
+
     // ── Scan state ────────────────────────────────────────────────────────────
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
@@ -195,12 +207,27 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun updateDisplayedItems(rawItems: List<ShoppingItem>) {
+        rawItemsCache = rawItems
+        reapplyFilters()
+    }
+
+    private fun reapplyFilters() {
         _uiState.update { state ->
-            val filtered = if (state.filterCategory != null)
-                rawItems.filter { it.category == state.filterCategory }
-            else rawItems
-            val displayed = if (!state.showChecked) filtered.filter { !it.isChecked } else filtered
-            state.copy(items = displayed)
+            var items = rawItemsCache
+            if (state.filterCategory != null)
+                items = items.filter { it.category == state.filterCategory }
+            if (state.searchQuery.isNotBlank())
+                items = items.filter {
+                    it.name.contains(state.searchQuery, ignoreCase = true) ||
+                    it.brand?.contains(state.searchQuery, ignoreCase = true) == true
+                }
+            if (!state.showChecked) items = items.filter { !it.isChecked }
+            items = when (state.sortMode) {
+                SortMode.CATEGORY   -> items.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
+                SortMode.NAME       -> items.sortedBy { it.name.lowercase() }
+                SortMode.DATE_ADDED -> items.sortedByDescending { it.createdAt }
+            }
+            state.copy(items = items)
         }
     }
 
@@ -298,12 +325,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun deleteItem(item: ShoppingItem) {
+    fun deleteItem(item: ShoppingItem, silent: Boolean = false) {
         viewModelScope.launch {
             when (val mode = _syncMode.value) {
                 is SyncMode.Local -> {
                     localRepo.deleteItem(item)
-                    _snackbarMessage.emit("${item.name} verwijderd")
+                    if (!silent) _snackbarMessage.emit("${item.name} verwijderd")
                 }
                 is SyncMode.Shared -> {
                     val updated = _sharedItems.value.filter { it.id != item.id }
@@ -311,10 +338,24 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     updateDisplayedItems(updated)
                     try {
                         firestoreRepo.publishList(mode.code, updated)
-                        _snackbarMessage.emit("${item.name} verwijderd")
+                        if (!silent) _snackbarMessage.emit("${item.name} verwijderd")
                     } catch (e: Exception) {
                         _snackbarMessage.emit("Fout: ${e.message}")
                     }
+                }
+            }
+        }
+    }
+
+    fun restoreItem(item: ShoppingItem) {
+        viewModelScope.launch {
+            when (val mode = _syncMode.value) {
+                is SyncMode.Local -> localRepo.addItem(item.copy(id = 0))
+                is SyncMode.Shared -> {
+                    val updated = _sharedItems.value + item
+                    _sharedItems.value = updated
+                    updateDisplayedItems(updated)
+                    runCatching { firestoreRepo.publishList(mode.code, updated) }
                 }
             }
         }
@@ -345,8 +386,25 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setFilterCategory(category: String?) = _uiState.update { it.copy(filterCategory = category) }
-    fun toggleShowChecked() = _uiState.update { it.copy(showChecked = !it.showChecked) }
+    fun setFilterCategory(category: String?) {
+        _uiState.update { it.copy(filterCategory = category) }
+        reapplyFilters()
+    }
+
+    fun toggleShowChecked() {
+        _uiState.update { it.copy(showChecked = !it.showChecked) }
+        reapplyFilters()
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+        reapplyFilters()
+    }
+
+    fun setSortMode(mode: SortMode) {
+        _uiState.update { it.copy(sortMode = mode) }
+        reapplyFilters()
+    }
 
     // ── Barcode scan ──────────────────────────────────────────────────────────
 
