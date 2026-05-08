@@ -403,7 +403,8 @@ private fun TopBar(
                     "🛒 Boodschappen",
                     style      = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
-                    color      = if (isDark) Color.White else Color(0xFF1A1040)
+                    color      = if (isDark) Color.White else Color(0xFF1A1040),
+                    maxLines   = 1
                 )
                 if (itemCount > 0) {
                     Text(
@@ -427,20 +428,6 @@ private fun TopBar(
                     else MaterialTheme.colorScheme.onSurface
                 )
             }
-            IconButton(onClick = onToggleTheme) {
-                Icon(
-                    if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                    "Thema",
-                    tint = if (isDark) Amber80 else Violet40
-                )
-            }
-            IconButton(onClick = onToggleVisible) {
-                Icon(
-                    if (showChecked) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                    "Filter",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
             IconButton(onClick = onShare) {
                 Icon(
                     if (syncMode is SyncMode.Shared) Icons.Filled.PeopleAlt else Icons.Outlined.PeopleAlt,
@@ -457,6 +444,27 @@ private fun TopBar(
                 expanded         = menuExpanded,
                 onDismissRequest = { menuExpanded = false }
             ) {
+                DropdownMenuItem(
+                    text        = { Text(if (isDark) "Licht thema" else "Donker thema") },
+                    leadingIcon = {
+                        Icon(
+                            if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                            null, tint = if (isDark) Amber80 else Violet40
+                        )
+                    },
+                    onClick = { menuExpanded = false; onToggleTheme() }
+                )
+                DropdownMenuItem(
+                    text        = { Text(if (showChecked) "Verberg afgestreept" else "Toon afgestreept") },
+                    leadingIcon = {
+                        Icon(
+                            if (showChecked) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                            null
+                        )
+                    },
+                    onClick = { menuExpanded = false; onToggleVisible() }
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(
                     text        = { Text("Controleer op updates") },
                     leadingIcon = { Icon(Icons.Outlined.SystemUpdate, null) },
@@ -710,7 +718,6 @@ fun GlassItemRow(
                 .glassCard(isDark, RoundedCornerShape(20.dp))
                 .clickable(onClick = onEdit)
         ) {
-            // Colored left accent bar
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -1098,7 +1105,6 @@ fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            // Confetti canvas
             val particles = remember { List(60) { ConfettiParticle() } }
             val infiniteTransition = rememberInfiniteTransition(label = "confetti")
             val progress by infiniteTransition.animateFloat(
@@ -1121,7 +1127,6 @@ fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
                 }
             }
 
-            // Centraal feestbericht
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
