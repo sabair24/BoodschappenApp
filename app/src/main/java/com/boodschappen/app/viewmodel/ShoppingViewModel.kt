@@ -27,6 +27,8 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
+// ── Sync state ──────────────────────────────────────────────────────────────────────────────
+
 sealed class SyncMode {
     object Local : SyncMode()
     data class Shared(val code: String) : SyncMode()
@@ -39,11 +41,15 @@ sealed class ShareUiState {
     data class Error(val message: String) : ShareUiState()
 }
 
+// ── Sort mode ─────────────────────────────────────────────────────────────────────────────
+
 enum class SortMode(val label: String) {
-    CATEGORY("Op categorie"),
+    CATEGORY("Óp categorie"),
     NAME("Op naam A–Z"),
     DATE_ADDED("Nieuwste eerst")
 }
+
+// ── General UI state ────────────────────────────────────────────────────────────────────────
 
 data class UiState(
     val items: List<ShoppingItem> = emptyList(),
@@ -54,6 +60,8 @@ data class UiState(
     val searchQuery: String = "",
     val sortMode: SortMode = SortMode.CATEGORY
 )
+
+// ── Update state ────────────────────────────────────────────────────────────────────────
 
 sealed class UpdateState {
     object Idle : UpdateState()
@@ -78,6 +86,8 @@ sealed class NameSearchState {
     object NotFound : NameSearchState()
 }
 
+// ── ViewModel ─────────────────────────────────────────────────────────────────────────────
+
 class ShoppingViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs: SharedPreferences =
@@ -87,6 +97,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val firestoreRepo  = FirestoreRepository()
     private val updateRepo     = UpdateRepository(application)
 
+    // ── Update ──────────────────────────────────────────────────────────────────────────
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
@@ -116,6 +127,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun dismissUpdate() { _updateState.value = UpdateState.Idle }
 
+    // ── Theme ──────────────────────────────────────────────────────────────────────────
     private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("dark_theme", true))
     val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
 
@@ -125,21 +137,26 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean("dark_theme", new).apply()
     }
 
+    // Items kept in memory while in shared mode
     private val _sharedItems = MutableStateFlow<List<ShoppingItem>>(emptyList())
+
     private var roomObserveJob: Job? = null
     private var mqttSyncJob: Job? = null
 
+    // ── Sync mode ─────────────────────────────────────────────────────────────────────────
     private val savedCode = prefs.getString("list_code", null)
     private val _syncMode = MutableStateFlow<SyncMode>(
         if (savedCode != null) SyncMode.Shared(savedCode) else SyncMode.Local
     )
     val syncMode: StateFlow<SyncMode> = _syncMode.asStateFlow()
 
+    // ── Share sheet state ───────────────────────────────────────────────────────────────────
     private val _shareUiState = MutableStateFlow<ShareUiState>(
         if (savedCode != null) ShareUiState.Active(savedCode) else ShareUiState.Idle
     )
     val shareUiState: StateFlow<ShareUiState> = _shareUiState.asStateFlow()
 
+    // ── Item list ────────────────────────────────────────────────────────────────────────────
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -148,19 +165,24 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _availableCategories = MutableStateFlow<Set<String>>(emptySet())
     val availableCategories: StateFlow<Set<String>> = _availableCategories.asStateFlow()
 
+    // ── Scan state ────────────────────────────────────────────────────────────────────────
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
+    // ── Naam-zoeken ───────────────────────────────────────────────────────────────────────
     private val _nameSearchState = MutableStateFlow<NameSearchState>(NameSearchState.Idle)
     val nameSearchState: StateFlow<NameSearchState> = _nameSearchState.asStateFlow()
     private var nameSearchJob: Job? = null
 
+    // ── Recente items ─────────────────────────────────────────────────────────────────────
     private val _recentItems = MutableStateFlow<List<String>>(emptyList())
     val recentItems: StateFlow<List<String>> = _recentItems.asStateFlow()
 
+    // ── Favorieten ──────────────────────────────────────────────────────────────────────
     private val _favoriteNames = MutableStateFlow<Set<String>>(emptySet())
     val favoriteNames: StateFlow<Set<String>> = _favoriteNames.asStateFlow()
 
+    // ── Snackbar ───────────────────────────────────────────────────────────────────────
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
 
@@ -189,6 +211,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ── Recente items & Favorieten ──────────────────────────────────────────────────────────
+
     private fun loadRecentAndFavorites() {
         val raw = prefs.getString("recent_items", "") ?: ""
         _recentItems.value = raw.split("|||").filter { it.isNotBlank() }.take(20)
@@ -214,6 +238,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putStringSet("favorite_items", limited).apply()
     }
 
+    // ── Naam-zoeken (debounced) ───────────────────────────────────────────────────────────────
+
     fun searchProductByName(query: String) {
         nameSearchJob?.cancel()
         if (query.length < 3) {
@@ -233,6 +259,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun resetNameSearch() { _nameSearchState.value = NameSearchState.Idle }
+
+    // ── Mode switching ─────────────────────────────────────────────────────────────────────────
 
     private fun observeSyncMode() {
         viewModelScope.launch {
@@ -257,7 +285,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun startMqttSync(code: String) {
         mqttSyncJob?.cancel()
         mqttSyncJob = viewModelScope.launch {
-            firestoreRepo.getItemsFlow(code).catch { }.collect { items ->
+            firestoreRepo.getItemsFlow(code).catch { /* stay on last state */ }.collect { items ->
                 val fixed = items.map { item ->
                     if (item.category == Category.OVERIG.displayName)
                         guessCategoryFromName(item.name)?.let { item.copy(category = it.displayName) } ?: item
@@ -294,6 +322,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             state.copy(items = items)
         }
     }
+
+    // ── Share / Join ───────────────────────────────────────────────────────────────────────
 
     fun createSharedList() {
         _shareUiState.value = ShareUiState.Loading
@@ -344,7 +374,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         _shareUiState.value = ShareUiState.Idle
     }
 
-    fun resetShareError() { _shareUiState.value = ShareUiState.Idle }
+    fun resetShareError() {
+        _shareUiState.value = ShareUiState.Idle
+    }
+
+    // ── CRUD — routes to Room or MQTT depending on mode ──────────────────────────────────
 
     fun addItem(item: ShoppingItem) {
         addToRecent(item.name)
@@ -465,6 +499,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         reapplyFilters()
     }
 
+    // ── Barcode scan ──────────────────────────────────────────────────────────────────────
+
     fun lookupBarcode(barcode: String) {
         _scanState.value = ScanState.Scanning
         viewModelScope.launch {
@@ -476,6 +512,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun resetScanState() { _scanState.value = ScanState.Idle }
+
+    // ── Share list text ───────────────────────────────────────────────────────────────────
 
     fun shareList(context: Context) {
         viewModelScope.launch {
