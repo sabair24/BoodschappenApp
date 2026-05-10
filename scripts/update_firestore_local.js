@@ -18,7 +18,7 @@ const admin = require("firebase-admin");
 const fs    = require("fs");
 const path  = require("path");
 
-// ── Argumenten ────────────────────────────────────────────────────────────────
+// ── Argumenten ───────────────────────────────────────────────────────────────────────────────
 const versionName = process.argv[2];
 const downloadUrl = process.argv[3] || "";
 
@@ -38,7 +38,7 @@ if (!versionCode) {
   process.exit(1);
 }
 
-// ── Firebase initialiseren ────────────────────────────────────────────────────
+// ── Firebase initialiseren ────────────────────────────────────────────────────────────────
 const saPath = path.join(__dirname, "service-account.json");
 if (!fs.existsSync(saPath)) {
   console.error(`❌ Geen service-account.json gevonden op: ${saPath}`);
@@ -52,7 +52,7 @@ admin.initializeApp({
   projectId:  serviceAccount.project_id,
 });
 
-// ── Firestore bijwerken ───────────────────────────────────────────────────────
+// ── Firestore bijwerken ───────────────────────────────────────────────────────────────────
 const db  = admin.firestore();
 const doc = {
   versionCode,
