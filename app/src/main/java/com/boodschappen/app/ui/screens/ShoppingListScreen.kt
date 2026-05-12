@@ -36,6 +36,7 @@ import com.boodschappen.app.BuildConfig
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
+import com.boodschappen.app.viewmodel.RecipeState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SortMode
 import com.boodschappen.app.viewmodel.SyncMode
@@ -62,7 +63,9 @@ fun ShoppingListScreen(
     var showDeleteDialog        by remember { mutableStateOf(false) }
     var showDeleteCheckedDialog by remember { mutableStateOf(false) }
     var showShareSheet          by remember { mutableStateOf(false) }
+    var showRecipeDialog        by remember { mutableStateOf(false) }
     var searchActive            by remember { mutableStateOf(false) }
+    val recipeState             by viewModel.recipeState.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.snackbarMessage.collect { snackbar.showSnackbar(it, duration = SnackbarDuration.Short) }
@@ -116,7 +119,8 @@ fun ShoppingListScreen(
                     onDeleteChecked  = { showDeleteCheckedDialog = true },
                     onDeleteAll      = { showDeleteDialog = true },
                     onSortChange     = { viewModel.setSortMode(it) },
-                    onCheckUpdate    = { viewModel.checkForUpdate(BuildConfig.VERSION_CODE) }
+                    onCheckUpdate    = { viewModel.checkForUpdate(BuildConfig.VERSION_CODE) },
+                    onRecipe         = { showRecipeDialog = true }
                 )
             },
             floatingActionButton = {
@@ -286,6 +290,16 @@ fun ShoppingListScreen(
 
     if (showShareSheet) ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
 
+    if (showRecipeDialog) {
+        RecipeDialog(
+            recipeState = recipeState,
+            onDismiss   = { showRecipeDialog = false; viewModel.resetRecipeState() },
+            onSearch    = { viewModel.getRecipeIngredients(it) },
+            onAdd       = { items -> viewModel.addRecipeItems(items); showRecipeDialog = false; viewModel.resetRecipeState() },
+            isDark      = isDark
+        )
+    }
+
     if (showDeleteDialog) {
         GlassDialog(
             title     = "Alles verwijderen?",
@@ -382,7 +396,8 @@ private fun TopBar(
     onDeleteChecked: () -> Unit,
     onDeleteAll: () -> Unit,
     onSortChange: (SortMode) -> Unit,
-    onCheckUpdate: () -> Unit
+    onCheckUpdate: () -> Unit,
+    onRecipe: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -466,6 +481,11 @@ private fun TopBar(
                     text        = { Text("Controleer op updates") },
                     leadingIcon = { Icon(Icons.Outlined.SystemUpdate, null) },
                     onClick     = { menuExpanded = false; onCheckUpdate() }
+                )
+                DropdownMenuItem(
+                    text        = { Text("Recept → Lijst") },
+                    leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = if (isDark) Violet80 else Violet40) },
+                    onClick     = { menuExpanded = false; onRecipe() }
                 )
                 DropdownMenuItem(
                     text        = { Text("Lijst exporteren") },
@@ -1158,6 +1178,166 @@ data class ConfettiParticle(
         androidx.compose.ui.graphics.Color(0xFFFCD34D)
     ).random()
 )
+
+@Composable
+private fun RecipeDialog(
+    recipeState: RecipeState,
+    onDismiss: () -> Unit,
+    onSearch: (String) -> Unit,
+    onAdd: (List<String>) -> Unit,
+    isDark: Boolean
+) {
+    var dish by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(recipeState) {
+        if (recipeState is RecipeState.Ready) {
+            selected = recipeState.ingredients.toSet()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor   = if (isDark) Dark700 else Color.White,
+        shape            = RoundedCornerShape(28.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AutoAwesome, null,
+                    tint = if (isDark) Violet80 else Violet40,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Recept → Lijst", fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value         = dish,
+                    onValueChange = { dish = it },
+                    label         = { Text("Gerecht") },
+                    placeholder   = { Text("bijv. Spaghetti bolognese") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                    shape         = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor   = if (isDark) Dark700 else Color.White.copy(alpha = 0.9f),
+                        unfocusedContainerColor = if (isDark) Dark800.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.7f),
+                        focusedBorderColor      = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        unfocusedBorderColor    = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFD4CCFF),
+                        cursorColor             = MaterialTheme.colorScheme.primary
+                    )
+                )
+                when (recipeState) {
+                    is RecipeState.Loading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Ingrediënten ophalen...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    is RecipeState.Error -> {
+                        Text(recipeState.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                    is RecipeState.Ready -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            recipeState.ingredients.forEach { ingredient ->
+                                val isChecked = ingredient in selected
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            selected = if (isChecked) selected - ingredient
+                                                      else selected + ingredient
+                                        }
+                                        .padding(vertical = 4.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked         = isChecked,
+                                        onCheckedChange = {
+                                            selected = if (isChecked) selected - ingredient
+                                                       else selected + ingredient
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = if (isDark) Violet80 else Violet40
+                                        )
+                                    )
+                                    Text(ingredient, style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                recipeState is RecipeState.Ready -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (selected.isNotEmpty())
+                                    Brush.linearGradient(listOf(
+                                        if (isDark) Violet80 else Violet40,
+                                        if (isDark) Emerald80 else Emerald40
+                                    ))
+                                else Brush.linearGradient(listOf(Color.Gray.copy(0.3f), Color.Gray.copy(0.3f)))
+                            )
+                            .clickable(enabled = selected.isNotEmpty()) { onAdd(selected.toList()) }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "Voeg ${selected.size} toe",
+                            color = if (selected.isNotEmpty()) Color.White else Color.Gray,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                recipeState !is RecipeState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (dish.isNotBlank())
+                                    Brush.linearGradient(listOf(
+                                        if (isDark) Violet80 else Violet40,
+                                        if (isDark) Emerald80 else Emerald40
+                                    ))
+                                else Brush.linearGradient(listOf(Color.Gray.copy(0.3f), Color.Gray.copy(0.3f)))
+                            )
+                            .clickable(enabled = dish.isNotBlank()) { onSearch(dish) }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "Zoeken",
+                            color = if (dish.isNotBlank()) Color.White else Color.Gray,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                else -> {}
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuleren", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
 
 @Composable
 fun GlassDialog(

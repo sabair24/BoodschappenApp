@@ -37,6 +37,7 @@ import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
 import com.boodschappen.app.util.guessCategoryFromName
+import com.boodschappen.app.viewmodel.AiCategoryState
 import com.boodschappen.app.viewmodel.NameSearchState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.ScanState
@@ -62,10 +63,12 @@ fun AddEditItemScreen(
     var barcode      by remember { mutableStateOf<String?>(null) }
     var userChangedCategory by remember { mutableStateOf(false) }
 
-    val scanState       by viewModel.scanState.collectAsState()
-    val nameSearchState by viewModel.nameSearchState.collectAsState()
-    val recentItems     by viewModel.recentItems.collectAsState()
-    val favoriteNames   by viewModel.favoriteNames.collectAsState()
+    val scanState        by viewModel.scanState.collectAsState()
+    val nameSearchState  by viewModel.nameSearchState.collectAsState()
+    val recentItems      by viewModel.recentItems.collectAsState()
+    val favoriteNames    by viewModel.favoriteNames.collectAsState()
+    val aiCategoryState  by viewModel.aiCategoryState.collectAsState()
+    val aiSuggestions    by viewModel.aiSuggestions.collectAsState()
 
     LaunchedEffect(itemId) {
         if (itemId != null) {
@@ -101,7 +104,18 @@ fun AddEditItemScreen(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch() } }
+    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch(); viewModel.resetAiCategory() } }
+
+    LaunchedEffect(aiCategoryState) {
+        val s = aiCategoryState
+        if (s is AiCategoryState.Suggested && !userChangedCategory) {
+            selectedCat = s.category
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!isEditing) viewModel.refreshAiSuggestions()
+    }
 
     val nameValid      = name.isNotBlank()
     var showCatPicker  by remember { mutableStateOf(false) }
@@ -210,6 +224,7 @@ fun AddEditItemScreen(
                             if (!userChangedCategory && v.isNotBlank())
                                 guessCategoryFromName(v)?.let { selectedCat = it }
                             if (!isEditing) viewModel.searchProductByName(v)
+                            viewModel.aiCategorize(v)
                         },
                         label           = "Productnaam *",
                         placeholder     = "bijv. Banaan, Broccoli, Melk...",
@@ -278,6 +293,15 @@ fun AddEditItemScreen(
                             color   = if (isDark) Violet80 else Violet40,
                             isDark  = isDark,
                             onClick = { name = it; viewModel.searchProductByName(it) }
+                        )
+                    }
+                    if (aiSuggestions.isNotEmpty()) {
+                        SuggestionRow(
+                            label   = "✨ AI-suggesties",
+                            items   = aiSuggestions,
+                            color   = if (isDark) Cyan80 else Cyan40,
+                            isDark  = isDark,
+                            onClick = { name = it; viewModel.searchProductByName(it); viewModel.aiCategorize(it) }
                         )
                     }
                 }
@@ -358,6 +382,28 @@ fun AddEditItemScreen(
                                 } else null
                             )
                         }
+                    }
+                }
+
+                AnimatedVisibility(visible = aiCategoryState is AiCategoryState.Loading) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isDark) Cyan80.copy(0.15f) else Cyan40.copy(0.10f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color       = if (isDark) Cyan80 else Cyan40
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "AI bepaalt categorie...",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDark) Cyan80 else Cyan40
+                        )
                     }
                 }
 
