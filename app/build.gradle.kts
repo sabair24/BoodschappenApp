@@ -25,7 +25,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "ANTHROPIC_API_KEY",
-            "\"${localProps["ANTHROPIC_API_KEY"] ?: "\"}")
+            "\"${localProps["ANTHROPIC_API_KEY"] ?: "\"}\"")
 
     }
 
