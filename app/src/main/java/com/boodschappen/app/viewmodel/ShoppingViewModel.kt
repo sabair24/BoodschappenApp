@@ -11,10 +11,12 @@ import com.boodschappen.app.data.local.ShoppingDatabase
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.util.guessCategoryFromName
 import com.boodschappen.app.data.remote.AppVersion
+import com.boodschappen.app.data.remote.ClaudeApiService
 import com.boodschappen.app.data.remote.FirestoreRepository
 import com.boodschappen.app.data.remote.UpdateRepository
 import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
+import com.boodschappen.app.data.repository.AiRepository
 import com.boodschappen.app.data.repository.ShoppingRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,8 +28,6 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
-
-// ── Sync state ──────────────────────────────────────────────────────────────────────────────
 
 sealed class SyncMode {
     object Local : SyncMode()
@@ -41,15 +41,11 @@ sealed class ShareUiState {
     data class Error(val message: String) : ShareUiState()
 }
 
-// ── Sort mode ─────────────────────────────────────────────────────────────────────────────
-
 enum class SortMode(val label: String) {
     CATEGORY("Óp categorie"),
     NAME("Op naam A–Z"),
     DATE_ADDED("Nieuwste eerst")
 }
-
-// ── General UI state ────────────────────────────────────────────────────────────────────────
 
 data class UiState(
     val items: List<ShoppingItem> = emptyList(),
@@ -60,8 +56,6 @@ data class UiState(
     val searchQuery: String = "",
     val sortMode: SortMode = SortMode.CATEGORY
 )
-
-// ── Update state ────────────────────────────────────────────────────────────────────────
 
 sealed class UpdateState {
     object Idle : UpdateState()
@@ -86,7 +80,18 @@ sealed class NameSearchState {
     object NotFound : NameSearchState()
 }
 
-// ── ViewModel ─────────────────────────────────────────────────────────────────────────────
+sealed class AiCategoryState {
+    object Idle : AiCategoryState()
+    object Loading : AiCategoryState()
+    data class Suggested(val category: Category) : AiCategoryState()
+}
+
+sealed class RecipeState {
+    object Idle : RecipeState()
+    object Loading : RecipeState()
+    data class Ready(val ingredients: List<String>) : RecipeState()
+    data class Error(val message: String) : RecipeState()
+}
 
 class ShoppingViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -96,8 +101,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val localRepo: ShoppingRepository
     private val firestoreRepo  = FirestoreRepository()
     private val updateRepo     = UpdateRepository(application)
+    private val aiRepo         = AiRepository(ClaudeApiService())
 
-    // ── Update ──────────────────────────────────────────────────────────────────────────
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
@@ -127,7 +132,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun dismissUpdate() { _updateState.value = UpdateState.Idle }
 
-    // ── Theme ──────────────────────────────────────────────────────────────────────────
     private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("dark_theme", true))
     val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
 
@@ -137,52 +141,51 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean("dark_theme", new).apply()
     }
 
-    // Items kept in memory while in shared mode
     private val _sharedItems = MutableStateFlow<List<ShoppingItem>>(emptyList())
-
     private var roomObserveJob: Job? = null
     private var mqttSyncJob: Job? = null
 
-    // ── Sync mode ─────────────────────────────────────────────────────────────────────────
     private val savedCode = prefs.getString("list_code", null)
     private val _syncMode = MutableStateFlow<SyncMode>(
         if (savedCode != null) SyncMode.Shared(savedCode) else SyncMode.Local
     )
     val syncMode: StateFlow<SyncMode> = _syncMode.asStateFlow()
 
-    // ── Share sheet state ───────────────────────────────────────────────────────────────────
     private val _shareUiState = MutableStateFlow<ShareUiState>(
         if (savedCode != null) ShareUiState.Active(savedCode) else ShareUiState.Idle
     )
     val shareUiState: StateFlow<ShareUiState> = _shareUiState.asStateFlow()
 
-    // ── Item list ────────────────────────────────────────────────────────────────────────────
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
-
     private var rawItemsCache: List<ShoppingItem> = emptyList()
 
     private val _availableCategories = MutableStateFlow<Set<String>>(emptySet())
     val availableCategories: StateFlow<Set<String>> = _availableCategories.asStateFlow()
 
-    // ── Scan state ────────────────────────────────────────────────────────────────────────
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
-    // ── Naam-zoeken ───────────────────────────────────────────────────────────────────────
     private val _nameSearchState = MutableStateFlow<NameSearchState>(NameSearchState.Idle)
     val nameSearchState: StateFlow<NameSearchState> = _nameSearchState.asStateFlow()
     private var nameSearchJob: Job? = null
 
-    // ── Recente items ─────────────────────────────────────────────────────────────────────
+    private val _aiCategoryState = MutableStateFlow<AiCategoryState>(AiCategoryState.Idle)
+    val aiCategoryState: StateFlow<AiCategoryState> = _aiCategoryState.asStateFlow()
+    private var aiCategoryJob: Job? = null
+
+    private val _aiSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val aiSuggestions: StateFlow<List<String>> = _aiSuggestions.asStateFlow()
+
+    private val _recipeState = MutableStateFlow<RecipeState>(RecipeState.Idle)
+    val recipeState: StateFlow<RecipeState> = _recipeState.asStateFlow()
+
     private val _recentItems = MutableStateFlow<List<String>>(emptyList())
     val recentItems: StateFlow<List<String>> = _recentItems.asStateFlow()
 
-    // ── Favorieten ──────────────────────────────────────────────────────────────────────
     private val _favoriteNames = MutableStateFlow<Set<String>>(emptySet())
     val favoriteNames: StateFlow<Set<String>> = _favoriteNames.asStateFlow()
 
-    // ── Snackbar ───────────────────────────────────────────────────────────────────────
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
 
@@ -196,7 +199,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .client(client).addConverterFactory(GsonConverterFactory.create()).build()
             .create(OpenFoodFactsApi::class.java)
         localRepo = ShoppingRepository(db.shoppingDao(), api)
-
         observeSyncMode()
         loadRecentAndFavorites()
         viewModelScope.launch { reCategorizeOverigItems() }
@@ -211,8 +213,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // ── Recente items & Favorieten ──────────────────────────────────────────────────────────
-
     private fun loadRecentAndFavorites() {
         val raw = prefs.getString("recent_items", "") ?: ""
         _recentItems.value = raw.split("|||").filter { it.isNotBlank() }.take(20)
@@ -222,8 +222,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun addToRecent(name: String) {
         val trimmed = name.trim().ifBlank { return }
         val list = _recentItems.value.toMutableList().apply {
-            remove(trimmed)
-            add(0, trimmed)
+            remove(trimmed); add(0, trimmed)
         }.take(20)
         _recentItems.value = list
         prefs.edit().putString("recent_items", list.joinToString("|||")).apply()
@@ -238,29 +237,20 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putStringSet("favorite_items", limited).apply()
     }
 
-    // ── Naam-zoeken (debounced) ───────────────────────────────────────────────────────────────
-
     fun searchProductByName(query: String) {
         nameSearchJob?.cancel()
-        if (query.length < 3) {
-            _nameSearchState.value = NameSearchState.Idle
-            return
-        }
+        if (query.length < 3) { _nameSearchState.value = NameSearchState.Idle; return }
         _nameSearchState.value = NameSearchState.Searching
         nameSearchJob = viewModelScope.launch {
             delay(600)
             localRepo.searchByName(query).fold(
-                onSuccess = { product ->
-                    _nameSearchState.value = NameSearchState.Found(product)
-                },
+                onSuccess = { _nameSearchState.value = NameSearchState.Found(it) },
                 onFailure = { _nameSearchState.value = NameSearchState.NotFound }
             )
         }
     }
 
     fun resetNameSearch() { _nameSearchState.value = NameSearchState.Idle }
-
-    // ── Mode switching ─────────────────────────────────────────────────────────────────────────
 
     private fun observeSyncMode() {
         viewModelScope.launch {
@@ -285,7 +275,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun startMqttSync(code: String) {
         mqttSyncJob?.cancel()
         mqttSyncJob = viewModelScope.launch {
-            firestoreRepo.getItemsFlow(code).catch { /* stay on last state */ }.collect { items ->
+            firestoreRepo.getItemsFlow(code).catch { }.collect { items ->
                 val fixed = items.map { item ->
                     if (item.category == Category.OVERIG.displayName)
                         guessCategoryFromName(item.name)?.let { item.copy(category = it.displayName) } ?: item
@@ -306,13 +296,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun reapplyFilters() {
         _uiState.update { state ->
             var items = rawItemsCache
-            if (state.filterCategory != null)
-                items = items.filter { it.category == state.filterCategory }
-            if (state.searchQuery.isNotBlank())
-                items = items.filter {
-                    it.name.contains(state.searchQuery, ignoreCase = true) ||
-                    it.brand?.contains(state.searchQuery, ignoreCase = true) == true
-                }
+            if (state.filterCategory != null) items = items.filter { it.category == state.filterCategory }
+            if (state.searchQuery.isNotBlank()) items = items.filter {
+                it.name.contains(state.searchQuery, ignoreCase = true) ||
+                it.brand?.contains(state.searchQuery, ignoreCase = true) == true
+            }
             if (!state.showChecked) items = items.filter { !it.isChecked }
             items = when (state.sortMode) {
                 SortMode.CATEGORY   -> items.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
@@ -322,8 +310,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             state.copy(items = items)
         }
     }
-
-    // ── Share / Join ───────────────────────────────────────────────────────────────────────
 
     fun createSharedList() {
         _shareUiState.value = ShareUiState.Loading
@@ -345,10 +331,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun joinSharedList(code: String) {
         val trimmed = code.trim().uppercase()
-        if (trimmed.length != 6) {
-            _shareUiState.value = ShareUiState.Error("Code moet 6 tekens zijn")
-            return
-        }
+        if (trimmed.length != 6) { _shareUiState.value = ShareUiState.Error("Code moet 6 tekens zijn"); return }
         _shareUiState.value = ShareUiState.Loading
         viewModelScope.launch {
             try {
@@ -374,11 +357,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         _shareUiState.value = ShareUiState.Idle
     }
 
-    fun resetShareError() {
-        _shareUiState.value = ShareUiState.Idle
-    }
-
-    // ── CRUD — routes to Room or MQTT depending on mode ──────────────────────────────────
+    fun resetShareError() { _shareUiState.value = ShareUiState.Idle }
 
     fun addItem(item: ShoppingItem) {
         addToRecent(item.name)
@@ -391,14 +370,9 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 is SyncMode.Shared -> {
                     val newItem = item.copy(id = FirestoreRepository.newItemId())
                     val updated = _sharedItems.value + newItem
-                    _sharedItems.value = updated
-                    updateDisplayedItems(updated)
-                    try {
-                        firestoreRepo.publishList(mode.code, updated)
-                        _snackbarMessage.emit("${item.name} toegevoegd")
-                    } catch (e: Exception) {
-                        _snackbarMessage.emit("Fout: ${e.message}")
-                    }
+                    _sharedItems.value = updated; updateDisplayedItems(updated)
+                    try { firestoreRepo.publishList(mode.code, updated); _snackbarMessage.emit("${item.name} toegevoegd") }
+                    catch (e: Exception) { _snackbarMessage.emit("Fout: ${e.message}") }
                 }
             }
         }
@@ -410,8 +384,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 is SyncMode.Local -> localRepo.updateItem(item)
                 is SyncMode.Shared -> {
                     val updated = _sharedItems.value.map { if (it.id == item.id) item else it }
-                    _sharedItems.value = updated
-                    updateDisplayedItems(updated)
+                    _sharedItems.value = updated; updateDisplayedItems(updated)
                     runCatching { firestoreRepo.publishList(mode.code, updated) }
                 }
             }
@@ -427,14 +400,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 }
                 is SyncMode.Shared -> {
                     val updated = _sharedItems.value.filter { it.id != item.id }
-                    _sharedItems.value = updated
-                    updateDisplayedItems(updated)
-                    try {
-                        firestoreRepo.publishList(mode.code, updated)
-                        if (!silent) _snackbarMessage.emit("${item.name} verwijderd")
-                    } catch (e: Exception) {
-                        _snackbarMessage.emit("Fout: ${e.message}")
-                    }
+                    _sharedItems.value = updated; updateDisplayedItems(updated)
+                    try { firestoreRepo.publishList(mode.code, updated)
+                        if (!silent) _snackbarMessage.emit("${item.name} verwijderd") }
+                    catch (e: Exception) { _snackbarMessage.emit("Fout: ${e.message}") }
                 }
             }
         }
@@ -446,8 +415,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 is SyncMode.Local -> localRepo.addItem(item.copy(id = 0))
                 is SyncMode.Shared -> {
                     val updated = _sharedItems.value + item
-                    _sharedItems.value = updated
-                    updateDisplayedItems(updated)
+                    _sharedItems.value = updated; updateDisplayedItems(updated)
                     runCatching { firestoreRepo.publishList(mode.code, updated) }
                 }
             }
@@ -466,40 +434,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 is SyncMode.Shared -> {
                     val updated = _sharedItems.value.filter { !it.isChecked }
                     val removed = _sharedItems.value.size - updated.size
-                    _sharedItems.value = updated
-                    updateDisplayedItems(updated)
-                    try {
-                        firestoreRepo.publishList(mode.code, updated)
-                        _snackbarMessage.emit("$removed items verwijderd")
-                    } catch (e: Exception) {
-                        _snackbarMessage.emit("Fout: ${e.message}")
-                    }
+                    _sharedItems.value = updated; updateDisplayedItems(updated)
+                    try { firestoreRepo.publishList(mode.code, updated); _snackbarMessage.emit("$removed items verwijderd") }
+                    catch (e: Exception) { _snackbarMessage.emit("Fout: ${e.message}") }
                 }
             }
         }
     }
 
-    fun setFilterCategory(category: String?) {
-        _uiState.update { it.copy(filterCategory = category) }
-        reapplyFilters()
-    }
-
-    fun toggleShowChecked() {
-        _uiState.update { it.copy(showChecked = !it.showChecked) }
-        reapplyFilters()
-    }
-
-    fun setSearchQuery(query: String) {
-        _uiState.update { it.copy(searchQuery = query) }
-        reapplyFilters()
-    }
-
-    fun setSortMode(mode: SortMode) {
-        _uiState.update { it.copy(sortMode = mode) }
-        reapplyFilters()
-    }
-
-    // ── Barcode scan ──────────────────────────────────────────────────────────────────────
+    fun setFilterCategory(category: String?) { _uiState.update { it.copy(filterCategory = category) }; reapplyFilters() }
+    fun toggleShowChecked() { _uiState.update { it.copy(showChecked = !it.showChecked) }; reapplyFilters() }
+    fun setSearchQuery(query: String) { _uiState.update { it.copy(searchQuery = query) }; reapplyFilters() }
+    fun setSortMode(mode: SortMode) { _uiState.update { it.copy(sortMode = mode) }; reapplyFilters() }
 
     fun lookupBarcode(barcode: String) {
         _scanState.value = ScanState.Scanning
@@ -512,8 +458,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun resetScanState() { _scanState.value = ScanState.Idle }
-
-    // ── Share list text ───────────────────────────────────────────────────────────────────
 
     fun shareList(context: Context) {
         viewModelScope.launch {
@@ -544,6 +488,48 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 }, "Lijst delen via..."
             ))
         }
+    }
+
+    fun aiCategorize(name: String) {
+        aiCategoryJob?.cancel()
+        if (name.length < 3) { _aiCategoryState.value = AiCategoryState.Idle; return }
+        _aiCategoryState.value = AiCategoryState.Loading
+        aiCategoryJob = viewModelScope.launch {
+            delay(700)
+            val cat = aiRepo.suggestCategory(name)
+            _aiCategoryState.value = if (cat != null) AiCategoryState.Suggested(cat) else AiCategoryState.Idle
+        }
+    }
+
+    fun resetAiCategory() { _aiCategoryState.value = AiCategoryState.Idle }
+
+    fun refreshAiSuggestions() {
+        viewModelScope.launch {
+            val current = _uiState.value.items.filter { !it.isChecked }.map { it.name }
+            val suggestions = aiRepo.getSuggestions(current, _recentItems.value, _favoriteNames.value.toList())
+            _aiSuggestions.value = suggestions
+        }
+    }
+
+    fun getRecipeIngredients(dish: String) {
+        if (dish.isBlank()) return
+        _recipeState.value = RecipeState.Loading
+        viewModelScope.launch {
+            val ingredients = aiRepo.getRecipeIngredients(dish)
+            _recipeState.value = if (ingredients.isEmpty())
+                RecipeState.Error("Geen ingrediënten gevonden voor \"$dish\"")
+            else RecipeState.Ready(ingredients)
+        }
+    }
+
+    fun resetRecipeState() { _recipeState.value = RecipeState.Idle }
+
+    fun addRecipeItems(items: List<String>) {
+        items.forEach { name ->
+            val guessed = guessCategoryFromName(name)
+            addItem(ShoppingItem(name = name, category = (guessed ?: Category.OVERIG).displayName))
+        }
+        viewModelScope.launch { _snackbarMessage.emit("${items.size} ingrediënten toegevoegd") }
     }
 
     suspend fun getItemById(id: Long): ShoppingItem? = localRepo.getItemById(id)
