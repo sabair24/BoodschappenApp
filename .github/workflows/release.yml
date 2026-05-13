@@ -68,6 +68,8 @@ jobs:
       # ── 5. APK bouwen ─────────────────────────────────────────────────────────
       - name: Build release APK
         run: ./gradlew assembleRelease
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       # ── 6. APK pad opslaan ────────────────────────────────────────────────────
       - name: Find APK
