@@ -16,6 +16,7 @@ import com.boodschappen.app.data.remote.FirestoreRepository
 import com.boodschappen.app.data.remote.UpdateRepository
 import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
+import com.boodschappen.app.data.remote.UpcItemDbApi
 import com.boodschappen.app.data.repository.AiRepository
 import com.boodschappen.app.data.repository.ShoppingRepository
 import kotlinx.coroutines.Job
@@ -99,6 +100,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         application.getSharedPreferences("boodschappen_prefs", Context.MODE_PRIVATE)
 
     private val localRepo: ShoppingRepository
+    private val upcApi: UpcItemDbApi
     private val firestoreRepo  = FirestoreRepository()
     private val updateRepo     = UpdateRepository(application)
     private val aiRepo         = AiRepository(ClaudeApiService())
@@ -196,7 +198,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "BoodschappenApp/2.9 (android)")
+                        .header("User-Agent", "BoodschappenApp/3.0 (android)")
                         .build()
                 )
             }
@@ -208,6 +210,16 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .client(client).addConverterFactory(GsonConverterFactory.create()).build()
             .create(OpenFoodFactsApi::class.java)
         localRepo = ShoppingRepository(db.shoppingDao(), api)
+        val upcClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+        upcApi = Retrofit.Builder()
+            .baseUrl("https://api.upcitemdb.com/")
+            .client(upcClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(UpcItemDbApi::class.java)
         observeSyncMode()
         loadRecentAndFavorites()
         viewModelScope.launch { reCategorizeOverigItems() }
@@ -459,10 +471,32 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun lookupBarcode(barcode: String) {
         _scanState.value = ScanState.Scanning
         viewModelScope.launch {
-            localRepo.lookupBarcode(barcode).fold(
-                onSuccess = { _scanState.value = ScanState.Found(it, barcode) },
-                onFailure = { _scanState.value = ScanState.NotFound(barcode) }
+            val offResult = localRepo.lookupBarcode(barcode)
+            if (offResult.isSuccess) {
+                _scanState.value = ScanState.Found(offResult.getOrThrow(), barcode)
+                return@launch
+            }
+            val upcProduct = tryUpcItemDb(barcode)
+            if (upcProduct != null) {
+                _scanState.value = ScanState.Found(upcProduct, barcode)
+            } else {
+                _scanState.value = ScanState.NotFound(barcode)
+            }
+        }
+    }
+
+    private suspend fun tryUpcItemDb(barcode: String): ProductDto? {
+        return try {
+            val response = upcApi.lookup(barcode)
+            val item = response.items.firstOrNull() ?: return null
+            if (item.title.isBlank()) return null
+            ProductDto(
+                product_name = item.title,
+                brands = item.brand.ifBlank { null },
+                image_front_url = item.images.firstOrNull()
             )
+        } catch (e: Exception) {
+            null
         }
     }
 

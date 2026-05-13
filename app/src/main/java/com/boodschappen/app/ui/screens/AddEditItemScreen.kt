@@ -85,13 +85,19 @@ fun AddEditItemScreen(
 
     LaunchedEffect(scanState) {
         val s = scanState
-        if (s is ScanState.Found && !isEditing) {
-            name     = s.product.getBestName() ?: ""
-            brand    = s.product.brands?.split(",")?.firstOrNull()?.trim()
-            imageUrl = s.product.getBestImage()
-            barcode  = s.barcode
-            selectedCat = autoCategory(s.product.categories_tags, selectedCat)
-            viewModel.resetScanState()
+        when {
+            s is ScanState.Found && !isEditing -> {
+                name     = s.product.getBestName() ?: ""
+                brand    = s.product.brands?.split(",")?.firstOrNull()?.trim()
+                imageUrl = s.product.getBestImage()
+                barcode  = s.barcode
+                selectedCat = autoCategory(s.product.categories_tags, selectedCat)
+                viewModel.resetScanState()
+            }
+            s is ScanState.NotFound && !isEditing -> {
+                barcode = s.barcode
+                viewModel.resetScanState()
+            }
         }
     }
 

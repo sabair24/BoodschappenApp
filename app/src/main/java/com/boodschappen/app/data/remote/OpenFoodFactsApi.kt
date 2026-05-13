@@ -5,7 +5,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface OpenFoodFactsApi {
-    @GET("api/v2/product/{barcode}")
+    @GET("api/v0/product/{barcode}.json")
     suspend fun getProduct(
         @Path("barcode") barcode: String,
         @Query("fields") fields: String = "product_name,product_name_nl,brands,image_front_url,image_front_small_url,image_url,categories_tags,quantity,nutriscore_grade"
