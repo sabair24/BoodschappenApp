@@ -54,7 +54,7 @@ fun guessCategoryFromName(name: String): Category? {
             "kersen", "aardbeien", "frambozen", "pruimen", "sla") ||
         n.hasWord("ui") || n.hasWord("aardappel") -> Category.GROENTE_FRUIT
 
-        n.hasAny("melk", "kaas", "boter", "yoghurt", "kwark", "room", "vla", "slagroom",
+        n.hasAny("melk", "kaas", "boter", "yoghurt", "yogurt", "kwark", "room", "vla", "slagroom",
             "mozzarella", "cheddar", "gouda", "brie", "camembert", "ricotta", "feta",
             "parmezan", "halvarine", "margarine", "crème fraîche", "creme fraiche",
             "eieren") ||
