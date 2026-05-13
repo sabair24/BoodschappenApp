@@ -108,7 +108,7 @@ fun AddEditItemScreen(
 
     LaunchedEffect(aiCategoryState) {
         val s = aiCategoryState
-        if (s is AiCategoryState.Suggested && !userChangedCategory && guessCategoryFromName(name) == null) {
+        if (s is AiCategoryState.Suggested && !userChangedCategory) {
             selectedCat = s.category
         }
     }
@@ -142,7 +142,7 @@ fun AddEditItemScreen(
                     ),
                     title = {
                         Text(
-                            if (isEditing) "✏️ Bewerken" else "➕ Item toevoegen",
+                            if (isEditing) "✅️ Bewerken" else "➕ Item toevoegen",
                             fontWeight = FontWeight.ExtraBold,
                             color = if (isDark) Color.White else Color(0xFF1A1040)
                         )
