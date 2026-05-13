@@ -195,15 +195,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         val db = ShoppingDatabase.getDatabase(application)
         val client = OkHttpClient.Builder()
             .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
-            .addInterceptor { chain ->
-                chain.proceed(
-                    chain.request().newBuilder()
-                        .header("User-Agent", "BoodschappenApp/3.0 (android)")
-                        .build()
-                )
-            }
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .build()
         val api = Retrofit.Builder()
             .baseUrl("https://world.openfoodfacts.org/")
