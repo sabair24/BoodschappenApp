@@ -108,7 +108,7 @@ fun AddEditItemScreen(
 
     LaunchedEffect(aiCategoryState) {
         val s = aiCategoryState
-        if (s is AiCategoryState.Suggested && !userChangedCategory) {
+        if (s is AiCategoryState.Suggested && !userChangedCategory && guessCategoryFromName(name) == null) {
             selectedCat = s.category
         }
     }
@@ -221,8 +221,13 @@ fun AddEditItemScreen(
                         value           = name,
                         onValueChange   = { v ->
                             name = v
-                            if (!userChangedCategory && v.isNotBlank())
+                            if (v.isBlank()) {
+                                selectedCat = Category.OVERIG
+                                userChangedCategory = false
+                                viewModel.resetAiCategory()
+                            } else if (!userChangedCategory) {
                                 guessCategoryFromName(v)?.let { selectedCat = it }
+                            }
                             if (!isEditing) viewModel.searchProductByName(v)
                             viewModel.aiCategorize(v)
                         },
@@ -243,7 +248,10 @@ fun AddEditItemScreen(
                                     name = ""
                                     imageUrl = null
                                     brand = null
+                                    selectedCat = Category.OVERIG
+                                    userChangedCategory = false
                                     viewModel.resetNameSearch()
+                                    viewModel.resetAiCategory()
                                 }) {
                                     Icon(Icons.Default.Clear, null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
