@@ -11,8 +11,16 @@ De app gebruikt Firestore om te checken of er een update is. Als de versionCode 
 
 **Controleer altijd vóór een push of de versie gebumpt is.**
 
-## Git push
-Lokale `git push` geeft HTTP 403. Gebruik altijd `mcp__github__create_or_update_file` of `mcp__github__push_files` om direct via de GitHub API te pushen. Daarna: `git fetch origin main && git reset --hard origin/main` om lokaal te synchroniseren.
+## Git push (KRITISCH — update-popup werkt alleen via main)
+Lokale `git push` geeft HTTP 403. Gebruik `mcp__github__push_files` om via de GitHub API te pushen.
+
+**VERPLICHTE VOLGORDE bij elke sessie met code-wijzigingen:**
+1. Push alle gewijzigde bestanden naar de feature branch (`claude/continue-app-development-JlS5N`) via `mcp__github__push_files`
+2. Push DAARNA dezelfde bestanden ook naar `main` via `mcp__github__push_files` — dit triggert de GitHub Actions build
+3. Commit lokaal: `git add <bestanden> && git commit -m "..."`
+4. Sync lokaal met remote main: `git fetch origin main && git reset --hard origin/main`
+
+**Waarom beide branches:** De workflow in `.github/workflows/release.yml` draait ALLEEN bij push naar `main`. De feature branch triggert NOOIT de build en NOOIT de Firestore-update. Zonder push naar `main` verschijnt er geen update-popup bij de gebruiker.
 
 ## Build pipeline
 - GitHub Actions bouwt automatisch bij elke push naar `main`
