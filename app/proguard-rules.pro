@@ -1,3 +1,7 @@
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod
+
 -keep class com.boodschappen.app.data.remote.** { *; }
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**
