@@ -56,6 +56,7 @@ fun ScannerScreen(
     var isScanning by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
+        viewModel.resetScanState()
         if (!cameraPermission.status.isGranted) {
             cameraPermission.launchPermissionRequest()
         }
@@ -446,16 +447,15 @@ fun ProductFoundCard(
 
             Spacer(Modifier.height(20.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Gray),
-                    border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.4f))
+                    border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Opnieuw")
+                    Text("Opnieuw", maxLines = 1, style = MaterialTheme.typography.labelLarge)
                 }
                 Button(
                     onClick = onAddDirectly,
@@ -463,20 +463,18 @@ fun ProductFoundCard(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF34C759),
                         contentColor = Color.Black
-                    )
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Direct", fontWeight = FontWeight.Bold)
+                    Text("Direct", fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.labelLarge)
                 }
                 Button(
                     onClick = onAddToList,
-                    modifier = Modifier.weight(1.4f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF))
+                    modifier = Modifier.weight(1.2f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Bewerken", fontWeight = FontWeight.Bold)
+                    Text("Bewerken", fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
