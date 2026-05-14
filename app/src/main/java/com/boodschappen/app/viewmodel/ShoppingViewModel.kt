@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.boodschappen.app.data.local.Category
@@ -19,12 +20,17 @@ import com.boodschappen.app.data.remote.ProductDto
 import com.boodschappen.app.data.remote.UpcItemDbApi
 import com.boodschappen.app.data.repository.AiRepository
 import com.boodschappen.app.data.repository.ShoppingRepository
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -70,7 +76,7 @@ sealed class ScanState {
     object Idle : ScanState()
     object Scanning : ScanState()
     data class Found(val product: ProductDto, val barcode: String) : ScanState()
-    data class NotFound(val barcode: String) : ScanState()
+    data class NotFound(val barcode: String, val error: String? = null) : ScanState()
     data class Error(val message: String) : ScanState()
 }
 
@@ -101,6 +107,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     private val localRepo: ShoppingRepository
     private val upcApi: UpcItemDbApi
+    private lateinit var offClient: OkHttpClient
     private val firestoreRepo  = FirestoreRepository()
     private val updateRepo     = UpdateRepository(application)
     private val aiRepo         = AiRepository(ClaudeApiService())
@@ -198,17 +205,19 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "BoodschappenApp/3.2 (Android; +https://github.com/sabair24/boodschappenapp)")
+                        .header("User-Agent", "BoodschappenApp/3.3 (Android; +https://github.com/sabair24/boodschappenapp)")
                         .header("Accept", "application/json")
                         .build()
                 )
             }
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .build()
+        offClient = client
+        val lenientGson = GsonBuilder().setLenient().create()
         val api = Retrofit.Builder()
             .baseUrl("https://world.openfoodfacts.org/")
-            .client(client).addConverterFactory(GsonConverterFactory.create()).build()
+            .client(client).addConverterFactory(GsonConverterFactory.create(lenientGson)).build()
             .create(OpenFoodFactsApi::class.java)
         localRepo = ShoppingRepository(db.shoppingDao(), api)
         val upcClient = OkHttpClient.Builder()
@@ -472,16 +481,79 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun lookupBarcode(barcode: String) {
         _scanState.value = ScanState.Scanning
         viewModelScope.launch {
+            // Step 1: Retrofit + Gson (lenient)
             val offResult = localRepo.lookupBarcode(barcode)
             if (offResult.isSuccess) {
                 _scanState.value = ScanState.Found(offResult.getOrThrow(), barcode)
                 return@launch
             }
+            val retrofitError = offResult.exceptionOrNull()?.let {
+                "${it.javaClass.simpleName}: ${it.message?.take(100)}"
+            }
+            Log.w("Scanner", "Retrofit failed for $barcode: $retrofitError")
+
+            // Step 2: Direct OkHttp (bypasses Gson binding issues)
+            val directProduct = lookupBarcodeDirectHttp(barcode)
+            if (directProduct != null) {
+                _scanState.value = ScanState.Found(directProduct, barcode)
+                return@launch
+            }
+
+            // Step 3: UPC Item DB fallback
             val upcProduct = tryUpcItemDb(barcode)
             if (upcProduct != null) {
                 _scanState.value = ScanState.Found(upcProduct, barcode)
-            } else {
-                _scanState.value = ScanState.NotFound(barcode)
+                return@launch
+            }
+
+            _scanState.value = ScanState.NotFound(barcode, error = retrofitError)
+        }
+    }
+
+    private suspend fun lookupBarcodeDirectHttp(barcode: String): ProductDto? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "https://world.openfoodfacts.org/api/v0/product/$barcode.json"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "BoodschappenApp/3.3 (Android; +https://github.com/sabair24/boodschappenapp)")
+                    .header("Accept", "application/json")
+                    .build()
+                val response = offClient.newCall(request).execute()
+                val code = response.code
+                val body = response.body?.string()
+                Log.d("Scanner", "Direct HTTP $code for $barcode, body length: ${body?.length}")
+                if (!response.isSuccessful || body == null) {
+                    Log.w("Scanner", "Direct HTTP failed: HTTP $code")
+                    return@withContext null
+                }
+                val json = JsonParser.parseString(body).asJsonObject
+                val status = json.get("status")?.let { if (it.isJsonPrimitive) it.asInt else 0 } ?: 0
+                Log.d("Scanner", "OFF status=$status for $barcode")
+                if (status != 1) return@withContext null
+                val p = json.get("product")?.takeIf { !it.isJsonNull }?.asJsonObject
+                    ?: return@withContext null
+                fun str(key: String) = p.get(key)
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asString
+                    ?.takeIf { it.isNotBlank() }
+                ProductDto(
+                    product_name          = str("product_name"),
+                    product_name_nl       = str("product_name_nl"),
+                    brands                = str("brands"),
+                    image_front_url       = str("image_front_url"),
+                    image_url             = str("image_url"),
+                    image_front_small_url = str("image_front_small_url"),
+                    quantity              = str("quantity"),
+                    nutriscore_grade      = str("nutriscore_grade"),
+                    categories_tags       = try {
+                        p.get("categories_tags")?.asJsonArray
+                            ?.mapNotNull { if (it.isJsonPrimitive) it.asString else null }
+                    } catch (e: Exception) { null }
+                )
+            } catch (e: Exception) {
+                Log.e("Scanner", "Direct HTTP error: ${e.javaClass.simpleName}: ${e.message}")
+                null
             }
         }
     }
@@ -492,11 +564,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             val item = response.items.firstOrNull() ?: return null
             if (item.title.isBlank()) return null
             ProductDto(
-                product_name = item.title,
-                brands = item.brand.ifBlank { null },
+                product_name    = item.title,
+                brands          = item.brand.ifBlank { null },
                 image_front_url = item.images.firstOrNull()
             )
         } catch (e: Exception) {
+            Log.w("Scanner", "UPC Item DB failed: ${e.message}")
             null
         }
     }

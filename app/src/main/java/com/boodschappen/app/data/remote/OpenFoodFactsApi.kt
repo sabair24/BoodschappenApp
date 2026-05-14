@@ -1,5 +1,6 @@
 package com.boodschappen.app.data.remote
 
+import com.google.gson.annotations.SerializedName
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -20,24 +21,24 @@ interface OpenFoodFactsApi {
 }
 
 data class SearchResponse(
-    val products: List<ProductDto> = emptyList()
+    @SerializedName("products") val products: List<ProductDto> = emptyList()
 )
 
 data class ProductResponse(
-    val status: Int = 0,
-    val product: ProductDto? = null
+    @SerializedName("status")  val status:  Int        = 0,
+    @SerializedName("product") val product: ProductDto? = null
 )
 
 data class ProductDto(
-    val product_name: String? = null,
-    val product_name_nl: String? = null,
-    val brands: String? = null,
-    val image_url: String? = null,
-    val image_front_url: String? = null,
-    val image_front_small_url: String? = null,
-    val categories_tags: List<String>? = null,
-    val quantity: String? = null,
-    val nutriscore_grade: String? = null
+    @SerializedName("product_name")           val product_name:           String?       = null,
+    @SerializedName("product_name_nl")        val product_name_nl:        String?       = null,
+    @SerializedName("brands")                 val brands:                 String?       = null,
+    @SerializedName("image_url")              val image_url:              String?       = null,
+    @SerializedName("image_front_url")        val image_front_url:        String?       = null,
+    @SerializedName("image_front_small_url")  val image_front_small_url:  String?       = null,
+    @SerializedName("categories_tags")        val categories_tags:        List<String>? = null,
+    @SerializedName("quantity")               val quantity:               String?       = null,
+    @SerializedName("nutriscore_grade")       val nutriscore_grade:       String?       = null
 ) {
     fun getBestName(): String? = product_name_nl?.takeIf { it.isNotBlank() } ?: product_name?.takeIf { it.isNotBlank() }
     fun getBestImage(): String? = image_front_url?.takeIf { it.isNotBlank() } ?: image_url?.takeIf { it.isNotBlank() }

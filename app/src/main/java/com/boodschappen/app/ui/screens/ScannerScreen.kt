@@ -164,6 +164,7 @@ fun ScannerScreen(
                             is ScanState.NotFound -> {
                                 ProductNotFoundCard(
                                     barcode = state.barcode,
+                                    error = state.error,
                                     onManualAdd = { onNavigateToAdd() },
                                     onRetry = {
                                         viewModel.resetScanState()
@@ -485,6 +486,7 @@ fun ProductFoundCard(
 @Composable
 fun ProductNotFoundCard(
     barcode: String,
+    error: String? = null,
     onManualAdd: () -> Unit,
     onRetry: () -> Unit
 ) {
@@ -514,6 +516,16 @@ fun ProductNotFoundCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
+            if (error != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(

@@ -25,7 +25,7 @@ class ShoppingRepository(
             if (response.status == 1 && response.product != null) {
                 Result.success(response.product)
             } else {
-                Result.failure(Exception("Product niet gevonden"))
+                Result.failure(Exception("OFF status=${response.status}, product=${response.product != null}"))
             }
         } catch (e: Exception) {
             Result.failure(e)
