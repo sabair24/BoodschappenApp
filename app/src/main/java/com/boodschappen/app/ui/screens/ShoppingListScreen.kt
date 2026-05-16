@@ -35,7 +35,9 @@ import androidx.compose.ui.unit.sp
 import com.boodschappen.app.BuildConfig
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.data.local.ShoppingList
 import com.boodschappen.app.ui.theme.*
+import com.boodschappen.app.viewmodel.NutritionState
 import com.boodschappen.app.viewmodel.RecipeState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SortMode
@@ -49,13 +51,18 @@ fun ShoppingListScreen(
     viewModel: ShoppingViewModel,
     onAddItem: () -> Unit,
     onEditItem: (Long) -> Unit,
-    onScanBarcode: () -> Unit
+    onScanBarcode: () -> Unit,
+    onReceiptScan: () -> Unit = {}
 ) {
     val uiState             by viewModel.uiState.collectAsState()
     val syncMode            by viewModel.syncMode.collectAsState()
     val isDark              by viewModel.isDarkTheme.collectAsState()
     val favoriteNames       by viewModel.favoriteNames.collectAsState()
     val availableCategories by viewModel.availableCategories.collectAsState()
+    val availableLists      by viewModel.availableLists.collectAsState()
+    val currentListId       by viewModel.currentListId.collectAsState()
+    val totalBudget         by viewModel.totalBudget.collectAsState()
+    val nutritionState      by viewModel.nutritionState.collectAsState()
     val snackbar      = remember { SnackbarHostState() }
     val scope         = rememberCoroutineScope()
     val context       = LocalContext.current
@@ -64,6 +71,8 @@ fun ShoppingListScreen(
     var showDeleteCheckedDialog by remember { mutableStateOf(false) }
     var showShareSheet          by remember { mutableStateOf(false) }
     var showRecipeDialog        by remember { mutableStateOf(false) }
+    var showListsSheet          by remember { mutableStateOf(false) }
+    var showNutritionDialog     by remember { mutableStateOf(false) }
     var searchActive            by remember { mutableStateOf(false) }
     val recipeState             by viewModel.recipeState.collectAsState()
 
@@ -108,6 +117,7 @@ fun ShoppingListScreen(
                     showChecked      = uiState.showChecked,
                     searchActive     = searchActive,
                     sortMode         = uiState.sortMode,
+                    currentListName  = availableLists.find { it.id == currentListId }?.let { "${it.emoji} ${it.name}" } ?: "🛒 Mijn lijst",
                     onToggleVisible  = { viewModel.toggleShowChecked() },
                     onToggleTheme    = { viewModel.toggleTheme() },
                     onToggleSearch   = {
@@ -120,11 +130,13 @@ fun ShoppingListScreen(
                     onDeleteAll      = { showDeleteDialog = true },
                     onSortChange     = { viewModel.setSortMode(it) },
                     onCheckUpdate    = { viewModel.checkForUpdate(BuildConfig.VERSION_CODE) },
-                    onRecipe         = { showRecipeDialog = true }
+                    onRecipe         = { showRecipeDialog = true },
+                    onListSwitch     = { showListsSheet = true },
+                    onNutritionCheck = { viewModel.getNutritionAnalysis(); showNutritionDialog = true }
                 )
             },
             floatingActionButton = {
-                GradientFabs(isDark = isDark, onAdd = onAddItem, onScan = onScanBarcode)
+                GradientFabs(isDark = isDark, onAdd = onAddItem, onScan = onScanBarcode, onReceiptScan = onReceiptScan)
             }
         ) { padding ->
 
@@ -163,6 +175,27 @@ fun ShoppingListScreen(
                     if (total > 0) {
                         GradientProgress(checked = checked, total = total, isDark = isDark)
                         Spacer(Modifier.height(4.dp))
+                    }
+                    if (totalBudget > 0.0) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.ShoppingCart, null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (isDark) Emerald80 else Emerald40
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Geschat totaal: €${"%.2f".format(totalBudget).replace('.', ',')}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isDark) Emerald80 else Emerald40
+                            )
+                        }
                     }
 
                     if (uiState.items.isEmpty() && uiState.filterCategory != null) {
@@ -290,6 +323,26 @@ fun ShoppingListScreen(
 
     if (showShareSheet) ShareSheet(viewModel = viewModel, onDismiss = { showShareSheet = false })
 
+    if (showListsSheet) {
+        ListsBottomSheet(
+            lists         = availableLists,
+            currentListId = currentListId,
+            isDark        = isDark,
+            onSelectList  = { list -> viewModel.switchToList(list.id) },
+            onCreateList  = { name, emoji -> viewModel.createList(name, emoji) },
+            onDeleteList  = { id -> viewModel.deleteList(id) },
+            onDismiss     = { showListsSheet = false }
+        )
+    }
+
+    if (showNutritionDialog) {
+        NutritionDialog(
+            nutritionState = nutritionState,
+            isDark         = isDark,
+            onDismiss      = { showNutritionDialog = false; viewModel.resetNutritionState() }
+        )
+    }
+
     if (showRecipeDialog) {
         RecipeDialog(
             recipeState = recipeState,
@@ -388,6 +441,7 @@ private fun TopBar(
     showChecked: Boolean,
     searchActive: Boolean,
     sortMode: SortMode,
+    currentListName: String,
     onToggleVisible: () -> Unit,
     onToggleTheme: () -> Unit,
     onToggleSearch: () -> Unit,
@@ -397,7 +451,9 @@ private fun TopBar(
     onDeleteAll: () -> Unit,
     onSortChange: (SortMode) -> Unit,
     onCheckUpdate: () -> Unit,
-    onRecipe: () -> Unit
+    onRecipe: () -> Unit,
+    onListSwitch: () -> Unit,
+    onNutritionCheck: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -412,7 +468,7 @@ private fun TopBar(
         title = {
             Column(modifier = Modifier.padding(start = 4.dp)) {
                 Text(
-                    "🛒 Boodschappen",
+                    currentListName,
                     style      = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
                     color      = if (isDark) Color.White else Color(0xFF1A1040),
@@ -431,6 +487,10 @@ private fun TopBar(
             if (syncMode is SyncMode.Shared) {
                 LiveBadge(code = (syncMode as SyncMode.Shared).code, isDark = isDark, onClick = onShare)
                 Spacer(Modifier.width(4.dp))
+            }
+            IconButton(onClick = onListSwitch) {
+                Icon(Icons.Outlined.List, "Mijn lijsten",
+                    tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onToggleSearch) {
                 Icon(
@@ -478,14 +538,19 @@ private fun TopBar(
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(
-                    text        = { Text("Controleer op updates") },
-                    leadingIcon = { Icon(Icons.Outlined.SystemUpdate, null) },
-                    onClick     = { menuExpanded = false; onCheckUpdate() }
+                    text        = { Text("✨ Gezondheidscheck") },
+                    leadingIcon = { Icon(Icons.Outlined.FavoriteBorder, null, tint = if (isDark) Rose80 else Rose40) },
+                    onClick     = { menuExpanded = false; onNutritionCheck() }
                 )
                 DropdownMenuItem(
                     text        = { Text("Recept → Lijst") },
                     leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = if (isDark) Violet80 else Violet40) },
                     onClick     = { menuExpanded = false; onRecipe() }
+                )
+                DropdownMenuItem(
+                    text        = { Text("Controleer op updates") },
+                    leadingIcon = { Icon(Icons.Outlined.SystemUpdate, null) },
+                    onClick     = { menuExpanded = false; onCheckUpdate() }
                 )
                 DropdownMenuItem(
                     text        = { Text("Lijst exporteren") },
@@ -771,36 +836,48 @@ fun GlassItemRow(
                 }
 
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        text           = item.name,
-                        style          = MaterialTheme.typography.bodyLarge,
-                        fontWeight     = if (!item.isChecked) FontWeight.SemiBold else FontWeight.Normal,
-                        textDecoration = if (item.isChecked) TextDecoration.LineThrough else null,
-                        color          = if (item.isChecked)
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
-                        else MaterialTheme.colorScheme.onSurface
-                    )
-                    if (item.brand != null || (item.quantity.isNotBlank() && item.quantity != "1")) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text           = item.name,
+                            style          = MaterialTheme.typography.bodyLarge,
+                            fontWeight     = if (!item.isChecked) FontWeight.SemiBold else FontWeight.Normal,
+                            textDecoration = if (item.isChecked) TextDecoration.LineThrough else null,
+                            color          = if (item.isChecked)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                            else MaterialTheme.colorScheme.onSurface,
+                            modifier       = Modifier.weight(1f, fill = false)
+                        )
+                        if (item.isRecurring) {
+                            Spacer(Modifier.width(4.dp))
+                            Text("🔁", fontSize = 11.sp)
+                        }
+                    }
+                    val hasSubtitle = item.brand != null || (item.quantity.isNotBlank() && item.quantity != "1") || item.price != null
+                    if (hasSubtitle) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             item.brand?.let {
-                                Text(
-                                    it,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                if (item.quantity.isNotBlank() && item.quantity != "1")
-                                    Text(
-                                        " · ",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                Text(it, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            if (item.brand != null && (item.quantity.isNotBlank() && item.quantity != "1" || item.price != null))
+                                Text(" · ", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (item.quantity.isNotBlank() && item.quantity != "1") {
                                 Text(
                                     "${item.quantity}${if (item.unit.isNotBlank()) " ${item.unit}" else ""}",
-                                    style      = MaterialTheme.typography.labelSmall,
-                                    color      = catColor,
-                                    fontWeight = FontWeight.Bold
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = catColor, fontWeight = FontWeight.Bold
+                                )
+                            }
+                            if (item.price != null) {
+                                if (item.quantity.isNotBlank() && item.quantity != "1")
+                                    Text(" · ", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "€${"%.2f".format(item.price).replace('.', ',')}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isDark) Emerald80 else Emerald40,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
@@ -973,8 +1050,30 @@ private fun ModernChip(
 }
 
 @Composable
-private fun GradientFabs(isDark: Boolean, onAdd: () -> Unit, onScan: () -> Unit) {
+private fun GradientFabs(isDark: Boolean, onAdd: () -> Unit, onScan: () -> Unit, onReceiptScan: () -> Unit = {}) {
     Column(horizontalAlignment = Alignment.End) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            if (isDark) Amber80 else Color(0xFFD97706),
+                            if (isDark) Rose80 else Rose40
+                        )
+                    )
+                )
+                .clickable(onClick = onReceiptScan),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Receipt, "Bon scannen",
+                tint     = Color.White,
+                modifier = Modifier.size(18.dp))
+        }
+
+        Spacer(Modifier.height(10.dp))
+
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -1334,6 +1433,238 @@ private fun RecipeDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Annuleren", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ListsBottomSheet(
+    lists: List<ShoppingList>,
+    currentListId: Long,
+    isDark: Boolean,
+    onSelectList: (ShoppingList) -> Unit,
+    onCreateList: (String, String) -> Unit,
+    onDeleteList: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = if (isDark) Dark700 else Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 32.dp)
+        ) {
+            Text(
+                "Mijn lijsten",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(16.dp))
+
+            lists.forEach { list ->
+                val isSelected = list.id == currentListId
+                val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.18f else 0.10f)
+                            else Color.Transparent
+                        )
+                        .border(
+                            1.dp,
+                            if (isSelected) MaterialTheme.colorScheme.primary.copy(0.4f)
+                            else if (isDark) Dark600 else Color(0xFFE0D9FF),
+                            RoundedCornerShape(16.dp)
+                        )
+                        .clickable { onSelectList(list); onDismiss() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(list.emoji, fontSize = 22.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(list.name, style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    }
+                    if (isSelected) {
+                        Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp))
+                    } else if (lists.size > 1) {
+                        IconButton(
+                            onClick = { onDeleteList(list.id) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Outlined.DeleteOutline, "Verwijder lijst",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { showCreateDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Nieuwe lijst aanmaken")
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        CreateListDialog(
+            isDark = isDark,
+            onCreate = { name, emoji -> onCreateList(name, emoji); showCreateDialog = false; onDismiss() },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun CreateListDialog(
+    isDark: Boolean,
+    onCreate: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var selectedEmoji by remember { mutableStateOf("🛒") }
+    val emojis = listOf("🛒","🍎","🏠","🎂","🧹","💊","🐾","🎁","🍕","🌿")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = if (isDark) Dark700 else Color.White,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Nieuwe lijst", fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Naam van de lijst") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = if (isDark) Dark700 else Color.White.copy(alpha = 0.9f),
+                        unfocusedContainerColor = if (isDark) Dark800.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.7f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        unfocusedBorderColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFD4CCFF),
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+                Text("Kies een emoji:", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(emojis) { emoji ->
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (emoji == selectedEmoji) MaterialTheme.colorScheme.primary.copy(0.2f)
+                                    else if (isDark) Dark600 else Color(0xFFF0ECFF)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (emoji == selectedEmoji) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedEmoji = emoji },
+                            contentAlignment = Alignment.Center
+                        ) { Text(emoji, fontSize = 20.sp) }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (name.isNotBlank())
+                            Brush.linearGradient(listOf(if (isDark) Violet80 else Violet40, if (isDark) Emerald80 else Emerald40))
+                        else Brush.linearGradient(listOf(Color.Gray.copy(0.3f), Color.Gray.copy(0.3f)))
+                    )
+                    .clickable(enabled = name.isNotBlank()) { onCreate(name, selectedEmoji) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) { Text("Aanmaken", color = if (name.isNotBlank()) Color.White else Color.Gray, fontWeight = FontWeight.SemiBold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuleren", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+@Composable
+private fun NutritionDialog(
+    nutritionState: NutritionState,
+    isDark: Boolean,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = if (isDark) Dark700 else Color.White,
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("✨", fontSize = 20.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("Gezondheidscheck", fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            when (nutritionState) {
+                is NutritionState.Loading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("AI analyseert je lijst...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                is NutritionState.Ready -> {
+                    Text(
+                        nutritionState.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                is NutritionState.Error -> {
+                    Text(nutritionState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
+                }
+                else -> {}
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Sluiten", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
         }
     )
