@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingDatabase
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.data.local.ShoppingList
 import com.boodschappen.app.util.guessCategoryFromName
 import com.boodschappen.app.data.remote.AppVersion
 import com.boodschappen.app.data.remote.ClaudeApiService
@@ -19,6 +20,7 @@ import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
 import com.boodschappen.app.data.remote.UpcItemDbApi
 import com.boodschappen.app.data.repository.AiRepository
+import com.boodschappen.app.data.repository.ReceiptItem
 import com.boodschappen.app.data.repository.ShoppingRepository
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
@@ -100,6 +102,25 @@ sealed class RecipeState {
     data class Error(val message: String) : RecipeState()
 }
 
+sealed class DuplicateState {
+    object None : DuplicateState()
+    data class Warning(val existingName: String) : DuplicateState()
+}
+
+sealed class NutritionState {
+    object Idle : NutritionState()
+    object Loading : NutritionState()
+    data class Ready(val text: String) : NutritionState()
+    data class Error(val message: String) : NutritionState()
+}
+
+sealed class ReceiptScanState {
+    object Idle : ReceiptScanState()
+    object Analyzing : ReceiptScanState()
+    data class Ready(val items: List<ReceiptItem>) : ReceiptScanState()
+    data class Error(val message: String) : ReceiptScanState()
+}
+
 class ShoppingViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs: SharedPreferences =
@@ -150,6 +171,47 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean("dark_theme", new).apply()
     }
 
+    // --- Multiple lists ---
+    private val _currentListId = MutableStateFlow(prefs.getLong("current_list_id", 1L))
+    val currentListId: StateFlow<Long> = _currentListId.asStateFlow()
+
+    private val _availableLists = MutableStateFlow<List<ShoppingList>>(emptyList())
+    val availableLists: StateFlow<List<ShoppingList>> = _availableLists.asStateFlow()
+
+    fun switchToList(id: Long) {
+        _currentListId.value = id
+        prefs.edit().putLong("current_list_id", id).apply()
+    }
+
+    fun createList(name: String, emoji: String = "🛒") {
+        viewModelScope.launch {
+            val id = localRepo.createList(ShoppingList(name = name.trim(), emoji = emoji))
+            switchToList(id)
+        }
+    }
+
+    fun updateListName(listId: Long, name: String, emoji: String) {
+        viewModelScope.launch {
+            val list = _availableLists.value.find { it.id == listId } ?: return@launch
+            localRepo.updateList(list.copy(name = name.trim(), emoji = emoji))
+        }
+    }
+
+    fun deleteList(listId: Long) {
+        viewModelScope.launch {
+            if (_availableLists.value.size <= 1) {
+                _snackbarMessage.emit("Je kunt de laatste lijst niet verwijderen")
+                return@launch
+            }
+            localRepo.deleteList(listId)
+            if (_currentListId.value == listId) {
+                val other = _availableLists.value.firstOrNull { it.id != listId }
+                if (other != null) switchToList(other.id)
+            }
+        }
+    }
+
+    // --- Shared list ---
     private val _sharedItems = MutableStateFlow<List<ShoppingItem>>(emptyList())
     private var roomObserveJob: Job? = null
     private var mqttSyncJob: Job? = null
@@ -165,6 +227,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     )
     val shareUiState: StateFlow<ShareUiState> = _shareUiState.asStateFlow()
 
+    // --- Main UI state ---
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     private var rawItemsCache: List<ShoppingItem> = emptyList()
@@ -172,6 +235,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _availableCategories = MutableStateFlow<Set<String>>(emptySet())
     val availableCategories: StateFlow<Set<String>> = _availableCategories.asStateFlow()
 
+    private val _totalBudget = MutableStateFlow(0.0)
+    val totalBudget: StateFlow<Double> = _totalBudget.asStateFlow()
+
+    // --- Scanner states ---
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
@@ -179,6 +246,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     val nameSearchState: StateFlow<NameSearchState> = _nameSearchState.asStateFlow()
     private var nameSearchJob: Job? = null
 
+    // --- AI states ---
     private val _aiCategoryState = MutableStateFlow<AiCategoryState>(AiCategoryState.Idle)
     val aiCategoryState: StateFlow<AiCategoryState> = _aiCategoryState.asStateFlow()
     private var aiCategoryJob: Job? = null
@@ -189,6 +257,17 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _recipeState = MutableStateFlow<RecipeState>(RecipeState.Idle)
     val recipeState: StateFlow<RecipeState> = _recipeState.asStateFlow()
 
+    private val _duplicateState = MutableStateFlow<DuplicateState>(DuplicateState.None)
+    val duplicateState: StateFlow<DuplicateState> = _duplicateState.asStateFlow()
+    private var duplicateJob: Job? = null
+
+    private val _nutritionState = MutableStateFlow<NutritionState>(NutritionState.Idle)
+    val nutritionState: StateFlow<NutritionState> = _nutritionState.asStateFlow()
+
+    private val _receiptScanState = MutableStateFlow<ReceiptScanState>(ReceiptScanState.Idle)
+    val receiptScanState: StateFlow<ReceiptScanState> = _receiptScanState.asStateFlow()
+
+    // --- Recent & favorites ---
     private val _recentItems = MutableStateFlow<List<String>>(emptyList())
     val recentItems: StateFlow<List<String>> = _recentItems.asStateFlow()
 
@@ -205,7 +284,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "BoodschappenApp/3.3 (Android; +https://github.com/sabair24/boodschappenapp)")
+                        .header("User-Agent", "BoodschappenApp/3.5 (Android; +https://github.com/sabair24/boodschappenapp)")
                         .header("Accept", "application/json")
                         .build()
                 )
@@ -219,7 +298,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .baseUrl("https://world.openfoodfacts.org/")
             .client(client).addConverterFactory(GsonConverterFactory.create(lenientGson)).build()
             .create(OpenFoodFactsApi::class.java)
-        localRepo = ShoppingRepository(db.shoppingDao(), api)
+        localRepo = ShoppingRepository(db.shoppingDao(), db.shoppingListDao(), api)
         val upcClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -230,14 +309,19 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(UpcItemDbApi::class.java)
+
+        viewModelScope.launch {
+            localRepo.getAllLists().collect { lists -> _availableLists.value = lists }
+        }
+
         observeSyncMode()
         loadRecentAndFavorites()
         viewModelScope.launch { reCategorizeOverigItems() }
     }
 
     private suspend fun reCategorizeOverigItems() {
-        val items = localRepo.allItems.first()
-        items.filter { it.category == Category.OVERIG.displayName }.forEach { item ->
+        val items = localRepo.getOverigItems()
+        items.forEach { item ->
             guessCategoryFromName(item.name)?.let { guessed ->
                 localRepo.updateItem(item.copy(category = guessed.displayName))
             }
@@ -291,7 +375,9 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                         mqttSyncJob?.cancel(); mqttSyncJob = null
                         roomObserveJob?.cancel()
                         roomObserveJob = viewModelScope.launch {
-                            localRepo.allItems.collect { items -> updateDisplayedItems(items) }
+                            _currentListId.flatMapLatest { listId ->
+                                localRepo.getItems(listId)
+                            }.collect { items -> updateDisplayedItems(items) }
                         }
                     }
                     is SyncMode.Shared -> {
@@ -321,6 +407,9 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun updateDisplayedItems(rawItems: List<ShoppingItem>) {
         rawItemsCache = rawItems
         _availableCategories.value = rawItems.map { it.category }.toSet()
+        _totalBudget.value = rawItems
+            .filter { !it.isChecked && it.price != null }
+            .sumOf { item -> (item.price ?: 0.0) * (item.quantity.toDoubleOrNull() ?: 1.0) }
         reapplyFilters()
     }
 
@@ -392,14 +481,15 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun addItem(item: ShoppingItem) {
         addToRecent(item.name)
+        val itemWithList = item.copy(listId = _currentListId.value)
         viewModelScope.launch {
             when (val mode = _syncMode.value) {
                 is SyncMode.Local -> {
-                    localRepo.addItem(item)
+                    localRepo.addItem(itemWithList)
                     _snackbarMessage.emit("${item.name} toegevoegd")
                 }
                 is SyncMode.Shared -> {
-                    val newItem = item.copy(id = FirestoreRepository.newItemId())
+                    val newItem = itemWithList.copy(id = FirestoreRepository.newItemId())
                     val updated = _sharedItems.value + newItem
                     _sharedItems.value = updated; updateDisplayedItems(updated)
                     try { firestoreRepo.publishList(mode.code, updated); _snackbarMessage.emit("${item.name} toegevoegd") }
@@ -459,14 +549,16 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             when (val mode = _syncMode.value) {
                 is SyncMode.Local -> {
-                    localRepo.deleteCheckedItems()
+                    localRepo.deleteCheckedItems(_currentListId.value)
                     _snackbarMessage.emit("Afgestreepte items verwijderd")
                 }
                 is SyncMode.Shared -> {
-                    val updated = _sharedItems.value.filter { !it.isChecked }
-                    val removed = _sharedItems.value.size - updated.size
-                    _sharedItems.value = updated; updateDisplayedItems(updated)
-                    try { firestoreRepo.publishList(mode.code, updated); _snackbarMessage.emit("$removed items verwijderd") }
+                    val processed = _sharedItems.value.map { item ->
+                        if (item.isChecked && item.isRecurring) item.copy(isChecked = false) else item
+                    }.filter { !it.isChecked }
+                    val removed = _sharedItems.value.size - processed.size
+                    _sharedItems.value = processed; updateDisplayedItems(processed)
+                    try { firestoreRepo.publishList(mode.code, processed); _snackbarMessage.emit("$removed items verwijderd") }
                     catch (e: Exception) { _snackbarMessage.emit("Fout: ${e.message}") }
                 }
             }
@@ -481,7 +573,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun lookupBarcode(barcode: String) {
         _scanState.value = ScanState.Scanning
         viewModelScope.launch {
-            // Step 1: Retrofit + Gson (lenient)
             val offResult = localRepo.lookupBarcode(barcode)
             if (offResult.isSuccess) {
                 _scanState.value = ScanState.Found(offResult.getOrThrow(), barcode)
@@ -492,14 +583,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             }
             Log.w("Scanner", "Retrofit failed for $barcode: $retrofitError")
 
-            // Step 2: Direct OkHttp (bypasses Gson binding issues)
             val directProduct = lookupBarcodeDirectHttp(barcode)
             if (directProduct != null) {
                 _scanState.value = ScanState.Found(directProduct, barcode)
                 return@launch
             }
 
-            // Step 3: UPC Item DB fallback
             val upcProduct = tryUpcItemDb(barcode)
             if (upcProduct != null) {
                 _scanState.value = ScanState.Found(upcProduct, barcode)
@@ -516,7 +605,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 val url = "https://world.openfoodfacts.org/api/v0/product/$barcode.json"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "BoodschappenApp/3.3 (Android; +https://github.com/sabair24/boodschappenapp)")
+                    .header("User-Agent", "BoodschappenApp/3.5 (Android; +https://github.com/sabair24/boodschappenapp)")
                     .header("Accept", "application/json")
                     .build()
                 val response = offClient.newCall(request).execute()
@@ -607,6 +696,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // --- AI functions ---
+
     fun aiCategorize(name: String) {
         aiCategoryJob?.cancel()
         if (name.length < 3) { _aiCategoryState.value = AiCategoryState.Idle; return }
@@ -647,6 +738,68 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             addItem(ShoppingItem(name = name, category = (guessed ?: Category.OVERIG).displayName))
         }
         viewModelScope.launch { _snackbarMessage.emit("${items.size} ingrediënten toegevoegd") }
+    }
+
+    fun checkDuplicate(newName: String, excludeId: Long? = null) {
+        duplicateJob?.cancel()
+        if (newName.length < 3) { _duplicateState.value = DuplicateState.None; return }
+        duplicateJob = viewModelScope.launch {
+            delay(800)
+            val lower = newName.lowercase().trim()
+            val match = rawItemsCache
+                .filter { it.id != (excludeId ?: -1L) && !it.isChecked }
+                .find { item ->
+                    val il = item.name.lowercase()
+                    (il.contains(lower) || lower.contains(il)) && il.length > 2 && lower.length > 2
+                }
+            _duplicateState.value = if (match != null) DuplicateState.Warning(match.name) else DuplicateState.None
+        }
+    }
+
+    fun resetDuplicateState() { _duplicateState.value = DuplicateState.None }
+
+    fun getNutritionAnalysis() {
+        val items = rawItemsCache.filter { !it.isChecked }.map { it.name }
+        if (items.isEmpty()) {
+            viewModelScope.launch { _snackbarMessage.emit("Voeg eerst items toe aan je lijst") }
+            return
+        }
+        _nutritionState.value = NutritionState.Loading
+        viewModelScope.launch {
+            val result = aiRepo.getNutritionAnalysis(items)
+            _nutritionState.value = if (result != null)
+                NutritionState.Ready(result)
+            else
+                NutritionState.Error("Analyse mislukt, controleer je verbinding")
+        }
+    }
+
+    fun resetNutritionState() { _nutritionState.value = NutritionState.Idle }
+
+    fun scanReceipt(imageBase64: String) {
+        _receiptScanState.value = ReceiptScanState.Analyzing
+        viewModelScope.launch {
+            val items = aiRepo.scanReceipt(imageBase64)
+            _receiptScanState.value = if (items.isNotEmpty())
+                ReceiptScanState.Ready(items)
+            else
+                ReceiptScanState.Error("Geen producten herkend op deze bon")
+        }
+    }
+
+    fun resetReceiptScanState() { _receiptScanState.value = ReceiptScanState.Idle }
+
+    fun addReceiptItems(items: List<ReceiptItem>) {
+        items.forEach { receiptItem ->
+            val guessed = guessCategoryFromName(receiptItem.name)
+            addItem(ShoppingItem(
+                name = receiptItem.name.trim(),
+                quantity = receiptItem.quantity,
+                price = receiptItem.price,
+                category = (guessed ?: Category.OVERIG).displayName
+            ))
+        }
+        viewModelScope.launch { _snackbarMessage.emit("${items.size} producten van bon toegevoegd") }
     }
 
     suspend fun getItemById(id: Long): ShoppingItem? = localRepo.getItemById(id)
