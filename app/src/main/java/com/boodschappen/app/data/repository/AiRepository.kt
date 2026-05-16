@@ -2,6 +2,13 @@ package com.boodschappen.app.data.repository
 
 import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.remote.ClaudeApiService
+import org.json.JSONArray
+
+data class ReceiptItem(
+    val name: String,
+    val quantity: String = "1",
+    val price: Double? = null
+)
 
 class AiRepository(private val claude: ClaudeApiService = ClaudeApiService()) {
 
@@ -54,5 +61,51 @@ Schrijf in het Nederlands. Geef ALLEEN een komma-gescheiden lijst van ingrediën
             .map { it.trim().trimEnd('.') }
             .filter { it.isNotBlank() }
             .take(15)
+    }
+
+    suspend fun getNutritionAnalysis(itemNames: List<String>): String? {
+        if (itemNames.isEmpty()) return null
+        val list = itemNames.take(30).joinToString(", ")
+        return claude.complete(
+            prompt = """Analyseer deze boodschappenlijst op gezondheid en geef advies in het Nederlands.
+
+Producten: $list
+
+Geef terug:
+🏆 Score: [1-10]/10
+📊 Analyse: [2 zinnen over de balans van de lijst]
+💡 Tips: [2 korte, concrete tips om de lijst gezonder te maken]
+
+Wees positief maar eerlijk.""",
+            maxTokens = 300
+        )
+    }
+
+    suspend fun scanReceipt(imageBase64: String): List<ReceiptItem> {
+        val response = claude.completeWithImage(
+            prompt = """Dit is een kassabon of boodschappenbon. Identificeer alle gekochte producten.
+Geef de resultaten terug als JSON array: [{"name": "productnaam", "quantity": "1", "price": 1.99}]
+- Gebruik korte Nederlandse productnamen (max 4 woorden)
+- price is het bedrag in euros als getal (bijv. 2.49), of laat weg als onbekend
+- Geef ALLEEN de JSON array terug, geen andere tekst of markdown""",
+            imageBase64 = imageBase64,
+            maxTokens = 1024
+        ) ?: return emptyList()
+
+        return try {
+            val cleaned = response.trim()
+                .removePrefix("```json").removePrefix("```")
+                .removeSuffix("```").trim()
+            val jsonArray = JSONArray(cleaned)
+            (0 until jsonArray.length()).mapNotNull { i ->
+                val obj = jsonArray.getJSONObject(i)
+                val name = obj.optString("name").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val qty = obj.optString("quantity", "1").ifBlank { "1" }
+                val price = if (obj.has("price")) obj.optDouble("price", -1.0).takeIf { it >= 0 } else null
+                ReceiptItem(name = name, quantity = qty, price = price)
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }

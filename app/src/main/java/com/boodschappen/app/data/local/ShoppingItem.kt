@@ -16,7 +16,10 @@ data class ShoppingItem(
     val brand: String? = null,
     val isChecked: Boolean = false,
     val note: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val price: Double? = null,
+    val isRecurring: Boolean = false,
+    val listId: Long = 1
 )
 
 enum class Category(val displayName: String, val emoji: String) {

@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.boodschappen.app.ui.screens.AddEditItemScreen
+import com.boodschappen.app.ui.screens.ReceiptScannerScreen
 import com.boodschappen.app.ui.screens.ScannerScreen
 import com.boodschappen.app.ui.screens.ShoppingListScreen
 import com.boodschappen.app.viewmodel.ShoppingViewModel
@@ -18,6 +19,7 @@ sealed class Screen(val route: String) {
         fun createRoute(itemId: Long) = "edit_item/$itemId"
     }
     object Scanner : Screen("scanner")
+    object ReceiptScanner : Screen("receipt_scanner")
 }
 
 @Composable
@@ -33,7 +35,8 @@ fun BoodschappenNavigation(viewModel: ShoppingViewModel) {
                 viewModel = viewModel,
                 onAddItem = { navController.navigate(Screen.AddItem.route) },
                 onEditItem = { id -> navController.navigate(Screen.EditItem.createRoute(id)) },
-                onScanBarcode = { navController.navigate(Screen.Scanner.route) }
+                onScanBarcode = { navController.navigate(Screen.Scanner.route) },
+                onReceiptScan = { navController.navigate(Screen.ReceiptScanner.route) }
             )
         }
         composable(Screen.AddItem.route) {
@@ -62,6 +65,12 @@ fun BoodschappenNavigation(viewModel: ShoppingViewModel) {
                         popUpTo(Screen.Scanner.route) { inclusive = true }
                     }
                 }
+            )
+        }
+        composable(Screen.ReceiptScanner.route) {
+            ReceiptScannerScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

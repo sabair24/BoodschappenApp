@@ -4,14 +4,36 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [ShoppingItem::class], version = 1, exportSchema = false)
+@Database(entities = [ShoppingItem::class, ShoppingList::class], version = 2, exportSchema = false)
 abstract class ShoppingDatabase : RoomDatabase() {
     abstract fun shoppingDao(): ShoppingDao
+    abstract fun shoppingListDao(): ShoppingListDao
 
     companion object {
         @Volatile
         private var INSTANCE: ShoppingDatabase? = null
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE shopping_items ADD COLUMN price REAL")
+                database.execSQL("ALTER TABLE shopping_items ADD COLUMN isRecurring INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE shopping_items ADD COLUMN listId INTEGER NOT NULL DEFAULT 1")
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS shopping_lists (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        emoji TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )"""
+                )
+                database.execSQL(
+                    "INSERT INTO shopping_lists (id, name, emoji, createdAt) VALUES (1, 'Mijn lijst', '🛒', ${System.currentTimeMillis()})"
+                )
+            }
+        }
 
         fun getDatabase(context: Context): ShoppingDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -19,7 +41,9 @@ abstract class ShoppingDatabase : RoomDatabase() {
                     context.applicationContext,
                     ShoppingDatabase::class.java,
                     "shopping_database"
-                ).build().also { INSTANCE = it }
+                )
+                .addMigrations(MIGRATION_1_2)
+                .build().also { INSTANCE = it }
             }
         }
     }

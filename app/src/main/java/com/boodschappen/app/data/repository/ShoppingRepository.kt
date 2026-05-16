@@ -2,22 +2,39 @@ package com.boodschappen.app.data.repository
 
 import com.boodschappen.app.data.local.ShoppingDao
 import com.boodschappen.app.data.local.ShoppingItem
+import com.boodschappen.app.data.local.ShoppingList
+import com.boodschappen.app.data.local.ShoppingListDao
 import com.boodschappen.app.data.remote.OpenFoodFactsApi
 import com.boodschappen.app.data.remote.ProductDto
 import kotlinx.coroutines.flow.Flow
 
 class ShoppingRepository(
     private val dao: ShoppingDao,
+    private val listDao: ShoppingListDao,
     private val api: OpenFoodFactsApi
 ) {
-    val allItems: Flow<List<ShoppingItem>> = dao.getAllItems()
+    fun getItems(listId: Long): Flow<List<ShoppingItem>> = dao.getAllItems(listId)
+    fun getAllLists(): Flow<List<ShoppingList>> = listDao.getAllLists()
 
     suspend fun addItem(item: ShoppingItem) = dao.insertItem(item)
     suspend fun updateItem(item: ShoppingItem) = dao.updateItem(item)
     suspend fun deleteItem(item: ShoppingItem) = dao.deleteItem(item)
-    suspend fun deleteCheckedItems() = dao.deleteCheckedItems()
-    suspend fun deleteAllItems() = dao.deleteAllItems()
     suspend fun getItemById(id: Long) = dao.getItemById(id)
+    suspend fun getOverigItems() = dao.getOverigItems()
+
+    suspend fun deleteCheckedItems(listId: Long) {
+        dao.deleteCheckedNonRecurringItems(listId)
+        dao.resetRecurringCheckedItems(listId)
+    }
+
+    suspend fun deleteAllItems(listId: Long) = dao.deleteAllItems(listId)
+
+    suspend fun createList(list: ShoppingList): Long = listDao.insertList(list)
+    suspend fun updateList(list: ShoppingList) = listDao.updateList(list)
+    suspend fun deleteList(listId: Long) {
+        listDao.deleteItemsInList(listId)
+        listDao.deleteListById(listId)
+    }
 
     suspend fun lookupBarcode(barcode: String): Result<ProductDto> {
         return try {
@@ -35,7 +52,6 @@ class ShoppingRepository(
     suspend fun searchByName(query: String): Result<ProductDto> {
         return try {
             val response = api.searchByName(query)
-            // Kies het eerste resultaat met een afbeelding
             val product = response.products.firstOrNull { it.getBestImage() != null }
                 ?: response.products.firstOrNull()
             if (product != null) Result.success(product)
