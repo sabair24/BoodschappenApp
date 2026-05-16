@@ -38,6 +38,7 @@ import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.ui.theme.*
 import com.boodschappen.app.util.guessCategoryFromName
 import com.boodschappen.app.viewmodel.AiCategoryState
+import com.boodschappen.app.viewmodel.DuplicateState
 import com.boodschappen.app.viewmodel.NameSearchState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.ScanState
@@ -61,6 +62,8 @@ fun AddEditItemScreen(
     var imageUrl     by remember { mutableStateOf<String?>(null) }
     var brand        by remember { mutableStateOf<String?>(null) }
     var barcode      by remember { mutableStateOf<String?>(null) }
+    var price        by remember { mutableStateOf("") }
+    var isRecurring  by remember { mutableStateOf(false) }
     var userChangedCategory by remember { mutableStateOf(false) }
 
     val scanState        by viewModel.scanState.collectAsState()
@@ -69,12 +72,15 @@ fun AddEditItemScreen(
     val favoriteNames    by viewModel.favoriteNames.collectAsState()
     val aiCategoryState  by viewModel.aiCategoryState.collectAsState()
     val aiSuggestions    by viewModel.aiSuggestions.collectAsState()
+    val duplicateState   by viewModel.duplicateState.collectAsState()
 
     LaunchedEffect(itemId) {
         if (itemId != null) {
             viewModel.getItemById(itemId)?.let {
                 existingItem = it; name = it.name; quantity = it.quantity
                 unit = it.unit; note = it.note; imageUrl = it.imageUrl; brand = it.brand; barcode = it.barcode
+                price = it.price?.let { p -> "%.2f".format(p).replace('.', ',') } ?: ""
+                isRecurring = it.isRecurring
                 val storedCat = Category.fromName(it.category)
                 selectedCat = if (storedCat == Category.OVERIG)
                     guessCategoryFromName(it.name) ?: storedCat
@@ -110,7 +116,7 @@ fun AddEditItemScreen(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch(); viewModel.resetAiCategory() } }
+    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch(); viewModel.resetAiCategory(); viewModel.resetDuplicateState() } }
 
     LaunchedEffect(aiCategoryState) {
         val s = aiCategoryState
@@ -231,8 +237,10 @@ fun AddEditItemScreen(
                                 selectedCat = Category.OVERIG
                                 userChangedCategory = false
                                 viewModel.resetAiCategory()
-                            } else if (!userChangedCategory) {
-                                guessCategoryFromName(v)?.let { selectedCat = it }
+                                viewModel.resetDuplicateState()
+                            } else {
+                                if (!userChangedCategory) guessCategoryFromName(v)?.let { selectedCat = it }
+                                viewModel.checkDuplicate(v, excludeId = itemId)
                             }
                             if (!isEditing) viewModel.searchProductByName(v)
                             viewModel.aiCategorize(v)
@@ -283,6 +291,28 @@ fun AddEditItemScreen(
                             Text("Afbeelding automatisch gevonden",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isDark) Emerald80 else Emerald40)
+                        }
+                    }
+
+                    AnimatedVisibility(visible = duplicateState is DuplicateState.Warning) {
+                        val existing = (duplicateState as? DuplicateState.Warning)?.existingName ?: ""
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Amber80.copy(alpha = if (isDark) 0.20f else 0.15f))
+                                .border(1.dp, Amber80.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Warning, null,
+                                modifier = Modifier.size(14.dp),
+                                tint = Amber80)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Lijkt op \"$existing\" die al op je lijst staat",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Amber80 else Color(0xFF92660A)
+                            )
                         }
                     }
                 }
@@ -352,6 +382,49 @@ fun AddEditItemScreen(
                                     onClick = { unit = if (u == "stuk") "" else u; showUnitPicker = false }
                                 )
                             }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassTextField(
+                        value           = price,
+                        onValueChange   = { v ->
+                            price = v.filter { it.isDigit() || it == ',' || it == '.' }
+                        },
+                        label           = "Prijs (€, optioneel)",
+                        placeholder     = "bijv. 1,99",
+                        isDark          = isDark,
+                        modifier        = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next
+                        )
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Switch(
+                            checked = isRecurring,
+                            onCheckedChange = { isRecurring = it }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "🔁 Herhaalt",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Komt terug na verwijderen",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -475,19 +548,22 @@ fun AddEditItemScreen(
                             )
                         )
                         .clickable(enabled = nameValid) {
+                            val parsedPrice = price.replace(',', '.').toDoubleOrNull()
                             val item = if (isEditing && existingItem != null) {
                                 existingItem!!.copy(
                                     name = name.trim(), quantity = quantity.trim(),
                                     unit = unit.trim(), category = selectedCat.displayName,
                                     note = note.trim(), imageUrl = imageUrl,
-                                    brand = brand, barcode = barcode
+                                    brand = brand, barcode = barcode,
+                                    price = parsedPrice, isRecurring = isRecurring
                                 )
                             } else {
                                 ShoppingItem(
                                     name = name.trim(), quantity = quantity.trim(),
                                     unit = unit.trim(), category = selectedCat.displayName,
                                     note = note.trim(), imageUrl = imageUrl,
-                                    brand = brand, barcode = barcode
+                                    brand = brand, barcode = barcode,
+                                    price = parsedPrice, isRecurring = isRecurring
                                 )
                             }
                             if (isEditing) viewModel.updateItem(item) else viewModel.addItem(item)
