@@ -257,9 +257,14 @@ fun ShoppingListScreen(
                                         visible = true,
                                         enter   = slideInHorizontally(
                                             initialOffsetX = { it },
-                                            animationSpec  = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                                            animationSpec  = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                                        ) + scaleIn(
+                                            initialScale  = 0.92f,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
                                         ) + fadeIn(),
-                                        exit    = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+                                        exit    = slideOutHorizontally(targetOffsetX = { it }) +
+                                                  shrinkVertically(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                                                  fadeOut()
                                     ) {
                                         GlassItemRow(
                                             item             = item,
@@ -289,9 +294,14 @@ fun ShoppingListScreen(
                                     visible = true,
                                     enter   = slideInHorizontally(
                                         initialOffsetX = { it },
-                                        animationSpec  = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                                        animationSpec  = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                                    ) + scaleIn(
+                                        initialScale  = 0.92f,
+                                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
                                     ) + fadeIn(),
-                                    exit    = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+                                    exit    = slideOutHorizontally(targetOffsetX = { it }) +
+                                              shrinkVertically(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                                              fadeOut()
                                 ) {
                                     GlassItemRow(
                                         item             = item,
@@ -754,32 +764,50 @@ fun GlassItemRow(
 
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { v ->
-            if (v == SwipeToDismissBoxValue.EndToStart) { onDelete(); true } else false
+            when (v) {
+                SwipeToDismissBoxValue.EndToStart  -> { onDelete(); true  }
+                SwipeToDismissBoxValue.StartToEnd  -> { onCheck();  false }
+                else -> false
+            }
         }
     )
 
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
-            val bg by animateColorAsState(
-                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart)
-                    Rose20 else Color.Transparent,
-                label = "swipe"
-            )
+            val direction = dismissState.dismissDirection
+            val bgBrush = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> Brush.horizontalGradient(
+                    listOf(Emerald20.copy(alpha = 0.9f), Emerald40.copy(alpha = 0.5f))
+                )
+                SwipeToDismissBoxValue.EndToStart -> Brush.horizontalGradient(
+                    listOf(Rose20.copy(alpha = 0.5f), Rose20.copy(alpha = 0.9f))
+                )
+                else -> Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+            }
             Box(
                 Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(20.dp))
-                    .background(bg)
-                    .padding(end = 24.dp),
-                contentAlignment = Alignment.CenterEnd
+                    .background(bgBrush)
             ) {
-                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                    Icon(Icons.Default.Delete, null, tint = Rose80)
+                if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                    Icon(
+                        Icons.Default.Check, null,
+                        tint = if (isDark) Emerald80 else Emerald40,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp).size(28.dp)
+                    )
+                }
+                if (direction == SwipeToDismissBoxValue.EndToStart) {
+                    Icon(
+                        Icons.Default.Delete, null,
+                        tint = Rose80,
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 24.dp).size(24.dp)
+                    )
                 }
             }
         },
-        enableDismissFromStartToEnd = false
+        enableDismissFromStartToEnd = true
     ) {
         Box(
             modifier = Modifier
@@ -1126,6 +1154,28 @@ fun EmptyState(
     onAdd: () -> Unit,
     onScan: () -> Unit
 ) {
+    val floatTransition = rememberInfiniteTransition(label = "cart_float")
+    val cartOffsetY by floatTransition.animateFloat(
+        initialValue  = -8f,
+        targetValue   = 8f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cart_y"
+    )
+
+    var subtitleVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300L)
+        subtitleVisible = true
+    }
+    val subtitleAlpha by animateFloatAsState(
+        targetValue   = if (subtitleVisible) 1f else 0f,
+        animationSpec = tween(400),
+        label         = "subtitle_alpha"
+    )
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.Center,
@@ -1133,6 +1183,7 @@ fun EmptyState(
     ) {
         Box(
             modifier = Modifier
+                .offset(y = cartOffsetY.dp)
                 .size(140.dp)
                 .clip(CircleShape)
                 .background(
@@ -1159,7 +1210,7 @@ fun EmptyState(
         Text(
             "Voeg items toe of scan een barcode\nom producten snel te herkennen",
             style     = MaterialTheme.typography.bodyMedium,
-            color     = MaterialTheme.colorScheme.onSurfaceVariant,
+            color     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = subtitleAlpha),
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(36.dp))
