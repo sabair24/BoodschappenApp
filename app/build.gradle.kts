@@ -20,8 +20,8 @@ android {
         applicationId = "com.boodschappen.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 28
-        versionName = "3.7"
+        versionCode = 29
+        versionName = "3.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         val anthropicKey = localProps.getProperty("ANTHROPIC_API_KEY")
@@ -77,6 +77,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/NOTICE.md"
             excludes += "META-INF/LICENSE.md"
+            // Firebase Firestore uses gRPC which ships META-INF/INDEX.LIST and
+            // META-INF/DEPENDENCIES; without these excludes the mergeJavaResource
+            // task fails with "More than one file was found with OS independent path".
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/*.kotlin_module"
         }
     }
 }
