@@ -42,6 +42,7 @@ import com.boodschappen.app.viewmodel.RecipeState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SortMode
 import com.boodschappen.app.viewmodel.SyncMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
@@ -383,7 +384,17 @@ fun ShoppingListScreen(
     }
 
     val allDone = uiState.items.isNotEmpty() && uiState.items.all { it.isChecked }
-    CelebrationOverlay(visible = allDone, isDark = isDark)
+    // Latch: show celebration for 4.5 s even if allDone flickers false (e.g. when
+    // checked items are hidden by the filter right after checking the last item).
+    var celebrationVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(allDone) {
+        if (allDone && !celebrationVisible) {
+            celebrationVisible = true
+            delay(4500L)
+            celebrationVisible = false
+        }
+    }
+    CelebrationOverlay(visible = celebrationVisible, isDark = isDark)
 }
 
 private fun formatQty(value: Double): String {
@@ -1262,24 +1273,27 @@ fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
             contentAlignment = Alignment.Center
         ) {
             val particles = remember { List(60) { ConfettiParticle() } }
-            val infiniteTransition = rememberInfiniteTransition(label = "confetti")
-            val progress by infiniteTransition.animateFloat(
-                initialValue   = 0f,
-                targetValue    = 1f,
-                animationSpec  = infiniteRepeatable(tween(3000, easing = LinearEasing)),
-                label          = "confetti_progress"
-            )
+            // One-shot: play once over 3.5 s and stop — no infinite loop.
+            val confettiAnim = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                confettiAnim.animateTo(1f, animationSpec = tween(3500, easing = LinearEasing))
+            }
+            val progress = confettiAnim.value  // read in composable scope for recomposition
             Canvas(modifier = Modifier.fillMaxSize()) {
                 particles.forEach { p ->
                     val x = p.startX * size.width
-                    val y = ((p.startY + progress * p.speed) % 1f) * size.height
-                    val alpha = if (y / size.height > 0.85f) (1f - (y / size.height - 0.85f) / 0.15f) else 1f
-                    drawCircle(
-                        color  = p.color,
-                        radius = p.size,
-                        center = Offset(x, y),
-                        alpha  = alpha
-                    )
+                    // No % wrapping — particles fall off-screen and stop there.
+                    val yFrac = p.startY + progress * p.speed
+                    val y = yFrac * size.height
+                    val alpha = (1f - (yFrac - 0.8f) / 0.2f).coerceIn(0f, 1f)
+                    if (alpha > 0f) {
+                        drawCircle(
+                            color  = p.color,
+                            radius = p.size,
+                            center = Offset(x, y),
+                            alpha  = alpha
+                        )
+                    }
                 }
             }
 
@@ -1317,8 +1331,8 @@ fun CelebrationOverlay(visible: Boolean, isDark: Boolean) {
 
 data class ConfettiParticle(
     val startX : Float = Random.nextFloat(),
-    val startY : Float = Random.nextFloat(),
-    val speed  : Float = 0.2f + Random.nextFloat() * 0.5f,
+    val startY : Float = Random.nextFloat() * 0.25f,   // start in top 25% for a top-burst feel
+    val speed  : Float = 0.6f + Random.nextFloat() * 0.6f,   // faster so they traverse the screen
     val size   : Float = 6f + Random.nextFloat() * 8f,
     val color  : androidx.compose.ui.graphics.Color = listOf(
         androidx.compose.ui.graphics.Color(0xFFC4B5FD),
