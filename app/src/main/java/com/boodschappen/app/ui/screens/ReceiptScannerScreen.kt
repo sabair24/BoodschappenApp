@@ -101,7 +101,7 @@ fun ReceiptScannerScreen(
         ) {
             when {
                 !cameraPermission.status.isGranted -> {
-                    PermissionDeniedContent(
+                    ReceiptPermissionDeniedContent(
                         shouldShowRationale = cameraPermission.status.shouldShowRationale,
                         onRequestPermission = { cameraPermission.launchPermissionRequest() },
                         onNavigateBack = onNavigateBack
@@ -310,7 +310,7 @@ private fun ReceiptScannerOverlay() {
 }
 
 @Composable
-private fun PermissionDeniedContent(
+private fun ReceiptPermissionDeniedContent(
     shouldShowRationale: Boolean,
     onRequestPermission: () -> Unit,
     onNavigateBack: () -> Unit
