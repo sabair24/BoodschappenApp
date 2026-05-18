@@ -276,6 +276,15 @@ fun ScannerOverlay() {
         ),
         label = "scan_line_y"
     )
+    val cornerAlpha by infiniteTransition.animateFloat(
+        initialValue  = 0.5f,
+        targetValue   = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "corner_alpha"
+    )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val overlayColor = Color.Black.copy(alpha = 0.6f)
@@ -294,7 +303,7 @@ fun ScannerOverlay() {
         drawRect(overlayColor, topLeft = Offset(right, top), size = androidx.compose.ui.geometry.Size(size.width - right, frameSize))
         drawRect(overlayColor, topLeft = Offset(0f, bottom), size = androidx.compose.ui.geometry.Size(size.width, size.height - bottom))
 
-        val cornerColor = Color(0xFF4CAF50)
+        val cornerColor = Color.White.copy(alpha = cornerAlpha)
 
         // Top-left corner
         drawLine(cornerColor, Offset(left, top + cornerRadius), Offset(left, top + cornerLength), strokeWidth, StrokeCap.Round)
@@ -312,7 +321,7 @@ fun ScannerOverlay() {
         drawLine(cornerColor, Offset(right, bottom - cornerRadius), Offset(right, bottom - cornerLength), strokeWidth, StrokeCap.Round)
         drawLine(cornerColor, Offset(right - cornerRadius, bottom), Offset(right - cornerLength, bottom), strokeWidth, StrokeCap.Round)
 
-        // Scan line
+        // Green scan line
         val lineY = top + frameSize * scanLineY
         drawLine(
             brush = androidx.compose.ui.graphics.Brush.horizontalGradient(

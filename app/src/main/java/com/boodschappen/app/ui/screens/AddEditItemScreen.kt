@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -188,6 +189,14 @@ fun AddEditItemScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+
+                AnimatedVisibility(
+                    visible = nameSearchState is NameSearchState.Searching && imageUrl == null,
+                    enter   = expandVertically() + fadeIn(tween(200)),
+                    exit    = shrinkVertically() + fadeOut(tween(150))
+                ) {
+                    ShimmerProductPlaceholder(isDark = isDark)
+                }
 
                 AnimatedVisibility(
                     visible = imageUrl != null,
@@ -681,4 +690,83 @@ private fun GlassTextField(
             cursorColor             = MaterialTheme.colorScheme.primary
         )
     )
+}
+
+@Composable
+private fun ShimmerProductPlaceholder(isDark: Boolean) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerOffset by transition.animateFloat(
+        initialValue  = -1f,
+        targetValue   = 2f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_offset"
+    )
+
+    val shimmerColors = if (isDark) listOf(
+        Color.White.copy(alpha = 0.04f),
+        Color.White.copy(alpha = 0.13f),
+        Color.White.copy(alpha = 0.04f)
+    ) else listOf(
+        Color.Black.copy(alpha = 0.04f),
+        Color.Black.copy(alpha = 0.11f),
+        Color.Black.copy(alpha = 0.04f)
+    )
+    val baseBg = if (isDark) Dark700 else Color(0xFFE8E4F8)
+
+    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(24.dp))
+        ) {
+            Box(Modifier.fillMaxSize().background(baseBg))
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.linearGradient(
+                        colors = shimmerColors,
+                        start  = Offset(shimmerOffset * 800f, 0f),
+                        end    = Offset((shimmerOffset + 1f) * 800f, 400f)
+                    )
+                )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.4f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(7.dp))
+        ) {
+            Box(Modifier.fillMaxSize().background(baseBg))
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.linearGradient(
+                        colors = shimmerColors,
+                        start  = Offset(shimmerOffset * 500f, 0f),
+                        end    = Offset((shimmerOffset + 1f) * 500f, 100f)
+                    )
+                )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.6f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(7.dp))
+        ) {
+            Box(Modifier.fillMaxSize().background(baseBg))
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.linearGradient(
+                        colors = shimmerColors,
+                        start  = Offset(shimmerOffset * 600f, 0f),
+                        end    = Offset((shimmerOffset + 1f) * 600f, 100f)
+                    )
+                )
+            )
+        }
+    }
 }

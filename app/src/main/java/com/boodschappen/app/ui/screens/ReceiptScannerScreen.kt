@@ -5,6 +5,8 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,8 +23,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -160,6 +164,8 @@ fun ReceiptScannerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
+                    ReceiptScannerOverlay()
+
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -258,6 +264,49 @@ private fun capturePhoto(
             }
         }
     )
+}
+
+@Composable
+private fun ReceiptScannerOverlay() {
+    val transition = rememberInfiniteTransition(label = "receipt_overlay")
+    val cornerAlpha by transition.animateFloat(
+        initialValue  = 0.5f,
+        targetValue   = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "receipt_corner_alpha"
+    )
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val overlayColor = Color.Black.copy(alpha = 0.55f)
+        val frameW = size.width * 0.85f
+        val frameH = minOf(frameW * 1.414f, size.height * 0.80f)
+        val left   = (size.width  - frameW) / 2f
+        val top    = (size.height - frameH) / 2f - 20.dp.toPx()
+        val right  = left + frameW
+        val bottom = top  + frameH
+
+        drawRect(overlayColor, size = androidx.compose.ui.geometry.Size(size.width, top))
+        drawRect(overlayColor, topLeft = Offset(0f, top),    size = androidx.compose.ui.geometry.Size(left, frameH))
+        drawRect(overlayColor, topLeft = Offset(right, top), size = androidx.compose.ui.geometry.Size(size.width - right, frameH))
+        drawRect(overlayColor, topLeft = Offset(0f, bottom), size = androidx.compose.ui.geometry.Size(size.width, size.height - bottom))
+
+        val cornerColor  = Color.White.copy(alpha = cornerAlpha)
+        val cornerLength = 36.dp.toPx()
+        val cornerRadius = 10.dp.toPx()
+        val strokeWidth  = 3.5.dp.toPx()
+
+        drawLine(cornerColor, Offset(left, top + cornerRadius),    Offset(left, top + cornerLength),    strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(left + cornerRadius, top),    Offset(left + cornerLength, top),    strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(right, top + cornerRadius),   Offset(right, top + cornerLength),   strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(right - cornerRadius, top),   Offset(right - cornerLength, top),   strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(left, bottom - cornerRadius), Offset(left, bottom - cornerLength), strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(left + cornerRadius, bottom), Offset(left + cornerLength, bottom), strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(right, bottom - cornerRadius),Offset(right, bottom - cornerLength),strokeWidth, StrokeCap.Round)
+        drawLine(cornerColor, Offset(right - cornerRadius, bottom),Offset(right - cornerLength, bottom),strokeWidth, StrokeCap.Round)
+    }
 }
 
 @Composable
