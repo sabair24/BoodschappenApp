@@ -20,7 +20,7 @@ jobs:
       contents: write   # vereist voor aanmaken van GitHub Releases
 
     steps:
-      # ── 1. Code ophalen ───────────────────────────────────────────────────────
+      # ── 1. Code ophalen ─────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -34,7 +34,7 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── 3. Versienaam bepalen ────────────────────────────────────────────────
+      # ── 3. Versienaam bepalen ──────────────────────────────────────────────────
       - name: Extract version
         id: version
         run: |
@@ -50,7 +50,7 @@ jobs:
           echo "code=$CODE" >> $GITHUB_OUTPUT
           echo "tag=v$VER" >> $GITHUB_OUTPUT
 
-      # ── 4. Tag aanmaken als die nog niet bestaat ──────────────────────────────
+      # ── 4. Tag aanmaken als die nog niet bestaat ──────────────────────────────────
       - name: Create git tag if missing
         if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
@@ -65,13 +65,13 @@ jobs:
             echo "Tag $TAG aangemaakt en gepusht"
           fi
 
-      # ── 5. APK bouwen ─────────────────────────────────────────────────────────
+      # ── 5. APK bouwen ───────────────────────────────────────────────────────────
       - name: Build release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # ── 6. APK pad opslaan ────────────────────────────────────────────────────
+      # ── 6. APK pad opslaan ──────────────────────────────────────────────────────────
       - name: Find APK
         id: apk
         run: |
@@ -79,7 +79,7 @@ jobs:
           echo "path=$APK" >> $GITHUB_OUTPUT
           echo "name=$(basename $APK)" >> $GITHUB_OUTPUT
 
-      # ── 7. GitHub Release aanmaken + APK uploaden ─────────────────────────────
+      # ── 7. GitHub Release aanmaken + APK uploaden ──────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -94,7 +94,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 8. Firestore bijwerken ────────────────────────────────────────────────
+      # ── 8. Firestore bijwerken ──────────────────────────────────────────────────────────
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
