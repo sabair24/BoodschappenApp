@@ -81,6 +81,35 @@ Wees positief maar eerlijk.""",
         )
     }
 
+    suspend fun parseVoiceInput(transcript: String): Triple<String, String, String>? {
+        val response = claude.complete(
+            prompt = """Verwerk deze gesproken boodschap naar JSON. Geef ALLEEN JSON terug, geen uitleg.
+Formaat: {"name":"productnaam","quantity":"hoeveelheid","unit":"eenheid"}
+- name: Nederlandstalige productnaam, beginhoofdletter, max 4 woorden
+- quantity: alleen het getal als tekst (gebruik "1" als onbekend)
+- unit: eenheid zoals "liter", "kg", "pak", "stuks", of "" als onbekend
+Voorbeelden:
+"twee liter volle melk" → {"name":"Volle melk","quantity":"2","unit":"liter"}
+"een pak boter" → {"name":"Boter","quantity":"1","unit":"pak"}
+"appels" → {"name":"Appels","quantity":"1","unit":""}
+Input: "$transcript"""",
+            maxTokens = 80
+        ) ?: return null
+        return try {
+            val cleaned = response.trim()
+                .removePrefix("```json").removePrefix("```")
+                .removeSuffix("```").trim()
+            val json = org.json.JSONObject(cleaned)
+            Triple(
+                json.optString("name", transcript).trim().ifBlank { transcript },
+                json.optString("quantity", "1").ifBlank { "1" },
+                json.optString("unit", "")
+            )
+        } catch (e: Exception) {
+            Triple(transcript.trim().replaceFirstChar { it.uppercaseChar() }, "1", "")
+        }
+    }
+
     suspend fun scanReceipt(imageBase64: String): List<ReceiptItem> {
         val response = claude.completeWithImage(
             prompt = """Dit is een kassabon of boodschappenbon. Identificeer alle gekochte producten.

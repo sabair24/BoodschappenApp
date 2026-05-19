@@ -121,6 +121,13 @@ sealed class ReceiptScanState {
     data class Error(val message: String) : ReceiptScanState()
 }
 
+sealed class VoiceState {
+    object Idle : VoiceState()
+    object Parsing : VoiceState()
+    data class Ready(val name: String, val quantity: String, val unit: String) : VoiceState()
+    data class Error(val message: String) : VoiceState()
+}
+
 class ShoppingViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs: SharedPreferences =
@@ -267,6 +274,14 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val _receiptScanState = MutableStateFlow<ReceiptScanState>(ReceiptScanState.Idle)
     val receiptScanState: StateFlow<ReceiptScanState> = _receiptScanState.asStateFlow()
 
+    // --- Voice input ---
+    private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
+    val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
+
+    // --- Category order (winkelroute) ---
+    private val _categoryOrder = MutableStateFlow<List<String>>(emptyList())
+    val categoryOrder: StateFlow<List<String>> = _categoryOrder.asStateFlow()
+
     // --- Recent & favorites ---
     private val _recentItems = MutableStateFlow<List<String>>(emptyList())
     val recentItems: StateFlow<List<String>> = _recentItems.asStateFlow()
@@ -316,6 +331,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
         observeSyncMode()
         loadRecentAndFavorites()
+        loadCategoryOrder()
         viewModelScope.launch { reCategorizeOverigItems() }
     }
 
@@ -333,6 +349,55 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         _recentItems.value = raw.split("|||").filter { it.isNotBlank() }.take(20)
         _favoriteNames.value = prefs.getStringSet("favorite_items", emptySet()) ?: emptySet()
     }
+
+    private fun loadCategoryOrder() {
+        val saved = prefs.getString("category_order", null)
+        _categoryOrder.value = if (saved != null) {
+            try {
+                val arr = org.json.JSONArray(saved)
+                val loaded = (0 until arr.length()).map { arr.getString(it) }
+                val all = Category.entries.map { it.displayName }
+                val result = loaded.toMutableList()
+                all.forEach { cat -> if (cat !in result) result.add(cat) }
+                result
+            } catch (e: Exception) {
+                Category.entries.map { it.displayName }
+            }
+        } else {
+            Category.entries.map { it.displayName }
+        }
+    }
+
+    fun saveCategoryOrder(order: List<String>) {
+        val arr = org.json.JSONArray(order)
+        prefs.edit().putString("category_order", arr.toString()).apply()
+        _categoryOrder.value = order
+        reapplyFilters()
+    }
+
+    fun processVoiceInput(transcript: String) {
+        _voiceState.value = VoiceState.Parsing
+        viewModelScope.launch {
+            val parsed = aiRepo.parseVoiceInput(transcript)
+            _voiceState.value = if (parsed != null)
+                VoiceState.Ready(parsed.first, parsed.second, parsed.third)
+            else
+                VoiceState.Ready(transcript.trim().replaceFirstChar { it.uppercaseChar() }, "1", "")
+        }
+    }
+
+    fun confirmVoiceItem(name: String, quantity: String, unit: String) {
+        val guessed = com.boodschappen.app.util.guessCategoryFromName(name)
+        addItem(ShoppingItem(
+            name     = name.trim(),
+            quantity = quantity.ifBlank { "1" },
+            unit     = unit.trim(),
+            category = (guessed ?: Category.OVERIG).displayName
+        ))
+        _voiceState.value = VoiceState.Idle
+    }
+
+    fun resetVoiceState() { _voiceState.value = VoiceState.Idle }
 
     fun addToRecent(name: String) {
         val trimmed = name.trim().ifBlank { return }
@@ -423,7 +488,13 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             }
             if (!state.showChecked) items = items.filter { !it.isChecked }
             items = when (state.sortMode) {
-                SortMode.CATEGORY   -> items.sortedWith(compareBy({ it.category }, { it.name.lowercase() }))
+                SortMode.CATEGORY   -> {
+                    val order = _categoryOrder.value
+                    items.sortedWith(compareBy(
+                        { i -> order.indexOf(i.category).let { idx -> if (idx < 0) 999 else idx } },
+                        { it.name.lowercase() }
+                    ))
+                }
                 SortMode.NAME       -> items.sortedBy { it.name.lowercase() }
                 SortMode.DATE_ADDED -> items.sortedByDescending { it.createdAt }
             }

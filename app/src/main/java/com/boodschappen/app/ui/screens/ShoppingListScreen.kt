@@ -37,11 +37,16 @@ import com.boodschappen.app.data.local.Category
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.data.local.ShoppingList
 import com.boodschappen.app.ui.theme.*
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.boodschappen.app.viewmodel.NutritionState
 import com.boodschappen.app.viewmodel.RecipeState
 import com.boodschappen.app.viewmodel.ShoppingViewModel
 import com.boodschappen.app.viewmodel.SortMode
 import com.boodschappen.app.viewmodel.SyncMode
+import com.boodschappen.app.viewmodel.VoiceState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -64,9 +69,20 @@ fun ShoppingListScreen(
     val currentListId       by viewModel.currentListId.collectAsState()
     val totalBudget         by viewModel.totalBudget.collectAsState()
     val nutritionState      by viewModel.nutritionState.collectAsState()
+    val voiceState          by viewModel.voiceState.collectAsState()
+    val categoryOrder       by viewModel.categoryOrder.collectAsState()
     val snackbar      = remember { SnackbarHostState() }
     val scope         = rememberCoroutineScope()
     val context       = LocalContext.current
+
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val transcript = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (transcript != null) viewModel.processVoiceInput(transcript)
+    }
 
     var showDeleteDialog        by remember { mutableStateOf(false) }
     var showDeleteCheckedDialog by remember { mutableStateOf(false) }
@@ -74,6 +90,7 @@ fun ShoppingListScreen(
     var showRecipeDialog        by remember { mutableStateOf(false) }
     var showListsSheet          by remember { mutableStateOf(false) }
     var showNutritionDialog     by remember { mutableStateOf(false) }
+    var showWinkelrouteSheet    by remember { mutableStateOf(false) }
     var searchActive            by remember { mutableStateOf(false) }
     val recipeState             by viewModel.recipeState.collectAsState()
 
@@ -133,11 +150,25 @@ fun ShoppingListScreen(
                     onCheckUpdate    = { viewModel.checkForUpdate(BuildConfig.VERSION_CODE) },
                     onRecipe         = { showRecipeDialog = true },
                     onListSwitch     = { showListsSheet = true },
-                    onNutritionCheck = { viewModel.getNutritionAnalysis(); showNutritionDialog = true }
+                    onNutritionCheck = { viewModel.getNutritionAnalysis(); showNutritionDialog = true },
+                    onWinkelroute    = { showWinkelrouteSheet = true }
                 )
             },
             floatingActionButton = {
-                GradientFabs(isDark = isDark, onAdd = onAddItem, onScan = onScanBarcode, onReceiptScan = onReceiptScan)
+                GradientFabs(
+                    isDark       = isDark,
+                    onAdd        = onAddItem,
+                    onScan       = onScanBarcode,
+                    onReceiptScan= onReceiptScan,
+                    onVoiceInput = {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "nl-NL")
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Spreek een boodschap in...")
+                        }
+                        speechLauncher.launch(intent)
+                    }
+                )
             }
         ) { padding ->
 
@@ -395,6 +426,24 @@ fun ShoppingListScreen(
         }
     }
     CelebrationOverlay(visible = celebrationVisible, isDark = isDark)
+
+    if (voiceState is VoiceState.Parsing || voiceState is VoiceState.Ready) {
+        VoiceInputDialog(
+            voiceState = voiceState,
+            isDark     = isDark,
+            onConfirm  = { name, qty, unit -> viewModel.confirmVoiceItem(name, qty, unit) },
+            onDismiss  = { viewModel.resetVoiceState() }
+        )
+    }
+
+    if (showWinkelrouteSheet) {
+        WinkelrouteSheet(
+            categoryOrder = categoryOrder,
+            isDark        = isDark,
+            onSave        = { newOrder -> viewModel.saveCategoryOrder(newOrder); showWinkelrouteSheet = false },
+            onDismiss     = { showWinkelrouteSheet = false }
+        )
+    }
 }
 
 private fun formatQty(value: Double): String {
@@ -474,7 +523,8 @@ private fun TopBar(
     onCheckUpdate: () -> Unit,
     onRecipe: () -> Unit,
     onListSwitch: () -> Unit,
-    onNutritionCheck: () -> Unit
+    onNutritionCheck: () -> Unit,
+    onWinkelroute: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -567,6 +617,11 @@ private fun TopBar(
                     text        = { Text("Recept → Lijst") },
                     leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null, tint = if (isDark) Violet80 else Violet40) },
                     onClick     = { menuExpanded = false; onRecipe() }
+                )
+                DropdownMenuItem(
+                    text        = { Text("Winkelroute instellen") },
+                    leadingIcon = { Icon(Icons.Outlined.SwapVert, null, tint = if (isDark) Cyan80 else Cyan40) },
+                    onClick     = { menuExpanded = false; onWinkelroute() }
                 )
                 DropdownMenuItem(
                     text        = { Text("Controleer op updates") },
@@ -1089,8 +1144,30 @@ private fun ModernChip(
 }
 
 @Composable
-private fun GradientFabs(isDark: Boolean, onAdd: () -> Unit, onScan: () -> Unit, onReceiptScan: () -> Unit = {}) {
+private fun GradientFabs(isDark: Boolean, onAdd: () -> Unit, onScan: () -> Unit, onReceiptScan: () -> Unit = {}, onVoiceInput: () -> Unit = {}) {
     Column(horizontalAlignment = Alignment.End) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            if (isDark) Violet80 else Violet40,
+                            if (isDark) Cyan80 else Cyan40
+                        )
+                    )
+                )
+                .clickable(onClick = onVoiceInput),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Mic, "Spraak invoer",
+                tint     = Color.White,
+                modifier = Modifier.size(17.dp))
+        }
+
+        Spacer(Modifier.height(8.dp))
+
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -1733,6 +1810,220 @@ private fun NutritionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun VoiceInputDialog(
+    voiceState: VoiceState,
+    isDark: Boolean,
+    onConfirm: (name: String, qty: String, unit: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var editName by remember(voiceState) {
+        mutableStateOf(if (voiceState is VoiceState.Ready) voiceState.name else "")
+    }
+    var editQty by remember(voiceState) {
+        mutableStateOf(if (voiceState is VoiceState.Ready) voiceState.quantity else "1")
+    }
+    var editUnit by remember(voiceState) {
+        mutableStateOf(if (voiceState is VoiceState.Ready) voiceState.unit else "")
+    }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor   = if (isDark) Dark700 else Color.White.copy(alpha = 0.9f),
+        unfocusedContainerColor = if (isDark) Dark800.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.7f),
+        focusedBorderColor      = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+        unfocusedBorderColor    = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0xFFD4CCFF),
+        cursorColor             = MaterialTheme.colorScheme.primary
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor   = if (isDark) Dark700 else Color.White,
+        shape            = RoundedCornerShape(28.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Mic, null,
+                    tint     = if (isDark) Violet80 else Violet40,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Spraak invoer", fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            if (voiceState is VoiceState.Parsing) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Verwerken...", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value         = editName,
+                        onValueChange = { editName = it },
+                        label         = { Text("Product") },
+                        singleLine    = true,
+                        modifier      = Modifier.fillMaxWidth(),
+                        shape         = RoundedCornerShape(14.dp),
+                        colors        = fieldColors
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value         = editQty,
+                            onValueChange = { editQty = it },
+                            label         = { Text("Aantal") },
+                            singleLine    = true,
+                            modifier      = Modifier.weight(1f),
+                            shape         = RoundedCornerShape(14.dp),
+                            colors        = fieldColors
+                        )
+                        OutlinedTextField(
+                            value         = editUnit,
+                            onValueChange = { editUnit = it },
+                            label         = { Text("Eenheid") },
+                            singleLine    = true,
+                            modifier      = Modifier.weight(1f),
+                            shape         = RoundedCornerShape(14.dp),
+                            colors        = fieldColors
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val canConfirm = editName.isNotBlank() && voiceState is VoiceState.Ready
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (canConfirm)
+                            Brush.linearGradient(listOf(
+                                if (isDark) Violet80 else Violet40,
+                                if (isDark) Emerald80 else Emerald40
+                            ))
+                        else Brush.linearGradient(listOf(Color.Gray.copy(0.3f), Color.Gray.copy(0.3f)))
+                    )
+                    .clickable(enabled = canConfirm) { onConfirm(editName, editQty, editUnit) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("Toevoegen",
+                    color      = if (canConfirm) Color.White else Color.Gray,
+                    fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuleren", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WinkelrouteSheet(
+    categoryOrder: List<String>,
+    isDark: Boolean,
+    onSave: (List<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val initialOrder = remember(categoryOrder) {
+        val all = Category.entries.map { it.displayName }
+        val ordered = categoryOrder.toMutableList()
+        all.forEach { cat -> if (cat !in ordered) ordered.add(cat) }
+        ordered
+    }
+    var localOrder by remember { mutableStateOf(initialOrder) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor   = if (isDark) Dark700 else Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 32.dp)
+        ) {
+            Text("Winkelroute", style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface)
+            Text("Stel de volgorde van categorieën in voor jouw supermarkt",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+
+            localOrder.forEachIndexed { index, catName ->
+                val cat = Category.fromName(catName)
+                Row(
+                    modifier          = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(cat.emoji, fontSize = 20.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(cat.displayName, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                        color    = MaterialTheme.colorScheme.onSurface)
+                    IconButton(
+                        onClick  = {
+                            if (index > 0) {
+                                val m = localOrder.toMutableList()
+                                m.removeAt(index); m.add(index - 1, catName)
+                                localOrder = m
+                            }
+                        },
+                        enabled  = index > 0,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowUp, "Omhoog",
+                            tint = if (index > 0) MaterialTheme.colorScheme.primary
+                                   else Color.Gray.copy(alpha = 0.3f))
+                    }
+                    IconButton(
+                        onClick  = {
+                            if (index < localOrder.size - 1) {
+                                val m = localOrder.toMutableList()
+                                m.removeAt(index); m.add(index + 1, catName)
+                                localOrder = m
+                            }
+                        },
+                        enabled  = index < localOrder.size - 1,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Omlaag",
+                            tint = if (index < localOrder.size - 1) MaterialTheme.colorScheme.primary
+                                   else Color.Gray.copy(alpha = 0.3f))
+                    }
+                }
+                if (index < localOrder.size - 1) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp),
+                        color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Brush.linearGradient(listOf(
+                        if (isDark) Violet80 else Violet40,
+                        if (isDark) Emerald80 else Emerald40
+                    )))
+                    .clickable { onSave(localOrder) }
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Opslaan", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }
 
 @Composable
