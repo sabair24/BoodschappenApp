@@ -487,6 +487,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .filter { !it.isChecked && it.price != null }
             .sumOf { item -> (item.price ?: 0.0) * (item.quantity.toDoubleOrNull() ?: 1.0) }
         reapplyFilters()
+        viewModelScope.launch {
+            try {
+                com.boodschappen.app.ui.widget.BoodschappenWidget().updateAll(getApplication())
+            } catch (_: Exception) {}
+        }
     }
 
     private fun reapplyFilters() {

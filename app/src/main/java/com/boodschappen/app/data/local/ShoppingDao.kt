@@ -32,4 +32,7 @@ interface ShoppingDao {
 
     @Query("DELETE FROM shopping_items WHERE listId = :listId")
     suspend fun deleteAllItems(listId: Long)
+
+    @Query("SELECT * FROM shopping_items WHERE isChecked = 0 ORDER BY name ASC LIMIT 8")
+    suspend fun getUncheckedItemsForWidget(): List<ShoppingItem>
 }

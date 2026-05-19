@@ -20,8 +20,8 @@ android {
         applicationId = "com.boodschappen.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 33
-        versionName = "3.12"
+        versionCode = 34
+        versionName = "3.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         val anthropicKey = localProps.getProperty("ANTHROPIC_API_KEY")
@@ -133,6 +133,9 @@ dependencies {
 
     // Accompanist permissions
     implementation("com.google.accompanist:accompanist-permissions:0.33.2-alpha")
+
+    // Glance (home screen widget)
+    implementation("androidx.glance:glance-appwidget:1.0.0")
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
