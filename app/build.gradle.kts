@@ -20,8 +20,8 @@ android {
         applicationId = "com.boodschappen.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 32
-        versionName = "3.11"
+        versionCode = 33
+        versionName = "3.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         val anthropicKey = localProps.getProperty("ANTHROPIC_API_KEY")

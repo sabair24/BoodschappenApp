@@ -313,7 +313,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             .baseUrl("https://world.openfoodfacts.org/")
             .client(client).addConverterFactory(GsonConverterFactory.create(lenientGson)).build()
             .create(OpenFoodFactsApi::class.java)
-        localRepo = ShoppingRepository(db.shoppingDao(), db.shoppingListDao(), api)
+        localRepo = ShoppingRepository(db.shoppingDao(), db.shoppingListDao(), api, db.priceRecordDao())
         val upcClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -398,6 +398,17 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun resetVoiceState() { _voiceState.value = VoiceState.Idle }
+
+    // --- Price history ---
+    private val _lastPrice = MutableStateFlow<Double?>(null)
+    val lastPrice: StateFlow<Double?> = _lastPrice.asStateFlow()
+
+    fun fetchLastPrice(name: String) {
+        if (name.isBlank()) { _lastPrice.value = null; return }
+        viewModelScope.launch {
+            _lastPrice.value = localRepo.getLastPrice(name)?.price
+        }
+    }
 
     fun addToRecent(name: String) {
         val trimmed = name.trim().ifBlank { return }

@@ -74,6 +74,7 @@ fun AddEditItemScreen(
     val aiCategoryState  by viewModel.aiCategoryState.collectAsState()
     val aiSuggestions    by viewModel.aiSuggestions.collectAsState()
     val duplicateState   by viewModel.duplicateState.collectAsState()
+    val lastPrice        by viewModel.lastPrice.collectAsState()
 
     LaunchedEffect(itemId) {
         if (itemId != null) {
@@ -86,6 +87,7 @@ fun AddEditItemScreen(
                 selectedCat = if (storedCat == Category.OVERIG)
                     guessCategoryFromName(it.name) ?: storedCat
                 else storedCat
+                viewModel.fetchLastPrice(it.name)
             }
         }
     }
@@ -117,7 +119,7 @@ fun AddEditItemScreen(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch(); viewModel.resetAiCategory(); viewModel.resetDuplicateState() } }
+    DisposableEffect(Unit) { onDispose { viewModel.resetNameSearch(); viewModel.resetAiCategory(); viewModel.resetDuplicateState(); viewModel.fetchLastPrice("") } }
 
     LaunchedEffect(aiCategoryState) {
         val s = aiCategoryState
@@ -400,19 +402,28 @@ fun AddEditItemScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GlassTextField(
-                        value           = price,
-                        onValueChange   = { v ->
-                            price = v.filter { it.isDigit() || it == ',' || it == '.' }
-                        },
-                        label           = "Prijs (€, optioneel)",
-                        placeholder     = "bijv. 1,99",
-                        isDark          = isDark,
-                        modifier        = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next
+                    Column(modifier = Modifier.weight(1f)) {
+                        GlassTextField(
+                            value           = price,
+                            onValueChange   = { v ->
+                                price = v.filter { it.isDigit() || it == ',' || it == '.' }
+                            },
+                            label           = "Prijs (€, optioneel)",
+                            placeholder     = "bijv. 1,99",
+                            isDark          = isDark,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next
+                            )
                         )
-                    )
+                        if (lastPrice != null) {
+                            Text(
+                                "Vorige prijs: €${"%.2f".format(lastPrice).replace('.', ',')}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Emerald80 else Emerald40,
+                                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                            )
+                        }
+                    }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)

@@ -1,5 +1,7 @@
 package com.boodschappen.app.data.repository
 
+import com.boodschappen.app.data.local.PriceRecord
+import com.boodschappen.app.data.local.PriceRecordDao
 import com.boodschappen.app.data.local.ShoppingDao
 import com.boodschappen.app.data.local.ShoppingItem
 import com.boodschappen.app.data.local.ShoppingList
@@ -11,13 +13,23 @@ import kotlinx.coroutines.flow.Flow
 class ShoppingRepository(
     private val dao: ShoppingDao,
     private val listDao: ShoppingListDao,
-    private val api: OpenFoodFactsApi
+    private val api: OpenFoodFactsApi,
+    private val priceDao: PriceRecordDao? = null
 ) {
     fun getItems(listId: Long): Flow<List<ShoppingItem>> = dao.getAllItems(listId)
     fun getAllLists(): Flow<List<ShoppingList>> = listDao.getAllLists()
 
-    suspend fun addItem(item: ShoppingItem) = dao.insertItem(item)
-    suspend fun updateItem(item: ShoppingItem) = dao.updateItem(item)
+    suspend fun addItem(item: ShoppingItem) {
+        dao.insertItem(item)
+        if (item.price != null) priceDao?.insert(PriceRecord(itemName = item.name.trim(), price = item.price))
+    }
+
+    suspend fun updateItem(item: ShoppingItem) {
+        dao.updateItem(item)
+        if (item.price != null) priceDao?.insert(PriceRecord(itemName = item.name.trim(), price = item.price))
+    }
+
+    suspend fun getLastPrice(name: String): PriceRecord? = priceDao?.getLatest(name.trim())
     suspend fun deleteItem(item: ShoppingItem) = dao.deleteItem(item)
     suspend fun getItemById(id: Long) = dao.getItemById(id)
     suspend fun getOverigItems() = dao.getOverigItems()

@@ -7,10 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [ShoppingItem::class, ShoppingList::class], version = 2, exportSchema = false)
+@Database(entities = [ShoppingItem::class, ShoppingList::class, PriceRecord::class], version = 3, exportSchema = false)
 abstract class ShoppingDatabase : RoomDatabase() {
     abstract fun shoppingDao(): ShoppingDao
     abstract fun shoppingListDao(): ShoppingListDao
+    abstract fun priceRecordDao(): PriceRecordDao
 
     companion object {
         @Volatile
@@ -35,6 +36,19 @@ abstract class ShoppingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS price_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        itemName TEXT NOT NULL,
+                        price REAL NOT NULL,
+                        date INTEGER NOT NULL
+                    )"""
+                )
+            }
+        }
+
         fun getDatabase(context: Context): ShoppingDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -42,7 +56,7 @@ abstract class ShoppingDatabase : RoomDatabase() {
                     ShoppingDatabase::class.java,
                     "shopping_database"
                 )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build().also { INSTANCE = it }
             }
         }
